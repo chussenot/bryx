@@ -4030,9 +4030,9 @@ mod tests {
             )
             .expect("it comes down within ten seconds");
             let bricks_before = game.bricks.len();
-            for step in 1..forecast.ticks as usize {
+            let ticks = forecast.ticks as usize;
+            for (step, &(x, y)) in forecast.path.iter().enumerate().take(ticks).skip(1) {
                 game.tick(&Input::default(), DT);
-                let (x, y) = forecast.path[step];
                 assert!(
                     (x - game.ball.x).abs() < 1e-3 && (y - game.ball.y).abs() < 1e-3,
                     "{kind:?} tick {step}: forecast ({x}, {y}), game ({}, {})",
