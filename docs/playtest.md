@@ -23,6 +23,7 @@ questions: it plays too well, and it hears nothing.
 | **S1** A new player brings a structure down without being told how | Round C: `first_fall_secs` on First fall; interview: "What made it fall?" |
 | **S2** Players aim at what carries, not at what is nearest | Round C: `brought_down` against `bricks`; observer notes on the first shot of Table and Bridge |
 | **S3** A collapse reads: what was hit, what it held, why it fell | Interview after Bridge: "Tell me what just happened" |
+| **S4** The later structures are hard, not slow | Round C: `secs` and `lives_lost` on levels 5 to 8; interview: "What were you trying to do?" |
 
 ## Setup
 
@@ -56,10 +57,11 @@ target/release/bryx --playtest-log playtest/p1-b.csv --rally-score   # round B
 - **Round B (`--rally-score`):** the same players, ideally another day.
   Players are better the second time whatever the rules, so compare their
   rallies and answers between rounds rather than their raw scores.
-- **Round C (Structures):** ten minutes, `--structures`, the same "arrow
-  keys move, Space serves" and nothing about structures. Stop after the
-  fourth level or ten minutes. The four levels take a practiced player
-  under two minutes; what is measured is the first play.
+- **Round C (Structures):** twenty minutes, `--structures`, the same
+  "arrow keys move, Space serves" and nothing about structures. Stop
+  after the eighth level or twenty minutes. The autopilot, aiming
+  exactly, takes three to five minutes; what is measured is the first play,
+  and the level each player stalls on.
 - **Record** the screen and the sound, with the player's consent.
 
 ### What the facilitator notes

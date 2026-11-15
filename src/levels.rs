@@ -510,12 +510,15 @@ pub struct StructureLevel {
     pub grid: &'static [&'static str],
 }
 
-/// The structural levels, in play order. Each teaches one idea.
+/// The structural levels, in play order. Each teaches one idea, and each
+/// asks for more than the one before: from the third on, no single brick
+/// brings the keystone down (`game.rs` checks it), so a level is a
+/// sequence of cuts, and which cut comes first matters.
 pub const STRUCTURES: &[StructureLevel] = &[
-    // Two rows of beams hold a block between two pillars. Cut either row
-    // and the other cannot carry the block alone: it cracks, gives way, and
-    // the block comes down with the keystone in it. An unaimed first serve
-    // lands on the right-hand beams.
+    // 1. Two rows of beams hold a block between two pillars. Cut either
+    // row and the other cannot carry the block alone: it cracks, gives
+    // way, and the block comes down with the keystone in it. An unaimed
+    // first serve lands on the right-hand beams.
     StructureLevel {
         name: "First fall",
         hint: "CUT A BEAM",
@@ -528,51 +531,129 @@ pub const STRUCTURES: &[StructureLevel] = &[
             "X....1111....X",
         ],
     },
-    // A table on two legs, the keystone hung under it by a tie. Break a
-    // leg and the other gives way under the top; or cut the tie, the
-    // precise shot.
+    // 2. A table on two legs, the keystone set in its top. A leg takes
+    // two hits; the other then gives way under the top.
     StructureLevel {
         name: "Table",
         hint: "BREAK A LEG",
         grid: &[
             "..............",
             "...11111111...",
-            "...11111111...",
-            "...S..|...S...",
-            "...S..K...S...",
+            "...111K1111...",
+            "...S......S...",
+            "...S......S...",
             "...X......X...",
         ],
     },
-    // A slab hung by two ties over a deck that carries the keystone. The
-    // deck takes two hits a brick from below; the slab, dropped, breaks
-    // every brick of it at once.
+    // 3. A column with the keystone at its head, braced to two posts by a
+    // beam each side. Cut the column and its top hangs from the braces;
+    // cut one brace and the other carries what hangs. Cut the column low
+    // and that is more than a beam can hold. Cut it high and both braces
+    // have to go. The column is armored: a hanging chain of plain bricks
+    // would tear under its own length.
+    StructureLevel {
+        name: "Tower",
+        hint: "CUT IT LOW",
+        grid: &[
+            "....X.1.X....",
+            "....X=K=X....",
+            "....X.2.X....",
+            "......2......",
+            "......2......",
+            "......2......",
+            "......2......",
+            "......S......",
+            "......S......",
+            "......X......",
+        ],
+    },
+    // 4. A lintel on two piers, all of supports, the keystone at its
+    // middle. One pier gone, the other holds the lintel out over nothing:
+    // a support carries twelve. Crack one that carries it and it holds
+    // six.
+    StructureLevel {
+        name: "Arch",
+        hint: "WEAKEN WHAT IS LEFT",
+        grid: &[
+            ".............",
+            "...SSSKSSS...",
+            "...S.....S...",
+            "...S.....S...",
+            "...S.....S...",
+            "...X.....X...",
+        ],
+    },
+    // 5. A slab hung by three ties over a deck that carries the keystone.
+    // The deck sits on steel: no ball reaches it from below, and the two
+    // bricks that hold the keystone stand whatever else goes. The slab,
+    // dropped whole, breaks them both. It stays up on any two ties.
     StructureLevel {
         name: "Bridge",
-        hint: "DROP THE SLAB",
+        hint: "DROP THE SLAB WHOLE",
         grid: &[
-            "..X.......X..",
-            "..|.......|..",
+            "..X...X...X..",
+            "..|...|...|..",
             "..111111111..",
             "..111111111..",
             ".............",
             ".............",
             ".XSSSSKSSSSX.",
+            ".XXXXX.XXXXX.",
         ],
     },
-    // The keystone in an armored cage, held four ways: two ties above, a
-    // row of beams on each side. It stays up on any two. A slab on two
-    // supports closes the vault from below; the way in is over the walls.
+    // 6. The keystone in an armored cage, held four ways by supports: two
+    // hangers above, a row on each side. Any one of them can carry the
+    // cage (its top corners are supports too), unless what is left of the
+    // others still hangs on it. A slab
+    // closes the vault from below; the way in is over the walls.
     StructureLevel {
         name: "Vault",
-        hint: "LEAVE IT ONE HOLD",
+        hint: "KEEP IT HEAVY",
         grid: &[
             "X....X.X....X",
-            "X....|.|....X",
-            "X....222....X",
-            "X====2K2====X",
+            "X....S.S....X",
+            "X....S2S....X",
+            "XSSSS2K2SSSSX",
             "X....222....X",
             "X...........X",
             "XS111111111SX",
+        ],
+    },
+    // 7. A box hung under a steel beam by three hangers, the keystone in
+    // it. It stays up on two. The hangers stand in the gap between the
+    // beam and the box: the way in is from the sides, and the middle one
+    // is behind the other two.
+    StructureLevel {
+        name: "Gantry",
+        hint: "TWO OF THREE",
+        grid: &[
+            "..XXXXXXXXX..",
+            "...S..S..S...",
+            "...S..S..S...",
+            "..222222222..",
+            "..2111K1112..",
+            "..222222222..",
+        ],
+    },
+    // 8. The cage again, on a pedestal, braced to the walls, under an
+    // armored roof hung by two ties and over a curtain wall. The roof,
+    // dropped, cracks everything it lands on. The pedestal (and the
+    // support the cage sits on it by) carries the cage alone, and not the
+    // cage with its braces still hanging on it.
+    StructureLevel {
+        name: "Citadel",
+        hint: "BRING IT ALL DOWN",
+        grid: &[
+            "X.X.......X.X",
+            "X.|.......|.X",
+            "X.222222222.X",
+            "X...........X",
+            "X....222....X",
+            "XSSSS2K2SSSSX",
+            "X....2S2....X",
+            "X.....S.....X",
+            "X.....S.....X",
+            "XS1111X1111SX",
         ],
     },
 ];
