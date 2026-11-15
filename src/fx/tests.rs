@@ -148,6 +148,23 @@ fn a_blast_breaks_its_neighbors_as_its_front_reaches_them() {
 }
 
 #[test]
+fn a_meteorite_lands_small_and_hot_and_throws_sparks_back_up() {
+    let game = playing();
+    let mut fx = FxSystem::new(Quality::Full);
+    fx.observe(&game, &[GameEvent::MeteorStruck { x: 300.0, y: 120.0 }]);
+    let k = kinds(&fx);
+    assert!(k.contains(&"core") && k.contains(&"ring") && k.contains(&"sparks"));
+    assert!(
+        !k.contains(&"rocks") && !k.contains(&"dust"),
+        "not an asteroid's: {k:?}"
+    );
+    let up = fx.effects.iter().any(|e| {
+        matches!(e.kind, Kind::Sparks { origin, dir, .. } if origin == [300.0, 120.0] && dir[1] < 0.0)
+    });
+    assert!(up, "the sparks leave the brick's top, upward");
+}
+
+#[test]
 fn an_asteroid_falls_apart_into_rock_not_splinters() {
     let game = playing();
     let mut fx = FxSystem::new(Quality::Full);

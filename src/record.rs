@@ -148,6 +148,7 @@ fn powerup_code(kind: PowerUpKind) -> u8 {
         PowerUpKind::Break => 9,
         PowerUpKind::ExplosiveBall => 10,
         PowerUpKind::MetalBall => 11,
+        PowerUpKind::MeteorRain => 12,
     }
 }
 

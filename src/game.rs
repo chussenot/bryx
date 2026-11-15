@@ -184,6 +184,18 @@ const BALL_POWER_DURATION_SECS: f32 = 15.0;
 /// it, never more.
 pub const BALL_BLAST_RADIUS: f32 = 30.0;
 
+/// The Meteor rain power-up's share of the capsules that drop: the rare
+/// one. The other capsules share the rest equally.
+const METEOR_SHARE: f64 = 0.03;
+/// Meteorites one rain sends down, and the seconds between them.
+const METEOR_COUNT: u8 = 12;
+const METEOR_INTERVAL_SECS: f32 = 0.2;
+pub const METEOR_RADIUS: f32 = 7.0;
+/// Fast enough to read as a strike, slow enough to see coming: under a
+/// third of a brick's height a tick, so a meteorite never skips one.
+const METEOR_FALL_SPEED: f32 = 520.0;
+const _: () = assert!(METEOR_FALL_SPEED / TICK_RATE < levels::BRICK_HEIGHT / 3.0);
+
 /// Gameplay added after the v1 spec. Each can be switched off, so v1's
 /// rules (and its pinned replay hash) stay reproducible: `--classic` plays
 /// with none of them.
@@ -208,6 +220,9 @@ pub struct Features {
     /// blows up the bricks around the one it hits, or breaks whatever it
     /// hits outright and flies on through.
     pub ball_powers: bool,
+    /// The Meteor rain power-up, the rare one: meteorites fall on the
+    /// bricks and break the ones they land on.
+    pub meteors: bool,
     /// Rally scoring (experimental, `--rally-score`, off in `ALL` until it
     /// is playtested): a brick scores its value times its place in the
     /// rally (×1 to ×[`RALLY_MAX_MULTIPLIER`]), an armored brick half as
@@ -225,6 +240,7 @@ impl Features {
         player: true,
         warp: true,
         ball_powers: true,
+        meteors: true,
         rally_score: false,
     };
     pub const V1: Self = Self {
@@ -235,6 +251,7 @@ impl Features {
         player: false,
         warp: false,
         ball_powers: false,
+        meteors: false,
         rally_score: false,
     };
 }
@@ -410,6 +427,17 @@ pub struct Asteroid {
     /// Wobble phase (radians) and rate (radians per second).
     phase: f32,
     wobble_rate: f32,
+}
+
+/// A meteorite of the Meteor rain: falls straight down on the bricks and
+/// breaks the first one it lands on. It never reaches the paddle.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Meteor {
+    pub x: f32,
+    pub y: f32,
+    /// Fall speed, px/s, for the renderers' interpolation and trails.
+    pub vy: f32,
+    pub radius: f32,
 }
 
 impl Ball {
@@ -983,6 +1011,12 @@ pub struct Game {
     pub asteroids: Vec<Asteroid>,
     /// Seconds of play until the next asteroid may spawn.
     asteroid_timer: f32,
+    /// Meteorites of a Meteor rain in flight.
+    pub meteors: Vec<Meteor>,
+    /// Meteorites the rain has still to send, and the seconds until the
+    /// next one.
+    meteors_left: u8,
+    meteor_timer: f32,
     /// Which post-v1 additions are on.
     pub features: Features,
     /// Bricks broken since a ball last touched the paddle, or since the
@@ -1013,6 +1047,10 @@ pub struct Game {
     /// Asteroid spawns and wobble draw from their own stream, so turning
     /// asteroids on or off leaves every power-up drop where it was.
     asteroid_rng: StdRng,
+    /// The Meteor rain draws from its own stream too (whether a drop is
+    /// one, and where each meteorite falls), so every other capsule drops
+    /// where it did before the rain existed.
+    meteor_rng: StdRng,
 }
 
 impl Default for Game {
@@ -1024,6 +1062,7 @@ impl Default for Game {
 impl Game {
     pub fn new() -> Self {
         Self::new_with_rng(
+            StdRng::from_rng(&mut rand::rng()),
             StdRng::from_rng(&mut rand::rng()),
             StdRng::from_rng(&mut rand::rng()),
         )
@@ -1064,6 +1103,7 @@ impl Game {
         Self::new_with_rng(
             StdRng::seed_from_u64(seed),
             StdRng::seed_from_u64(seed ^ 0x9E37_79B9_7F4A_7C15),
+            StdRng::seed_from_u64(seed ^ 0xC2B2_AE3D_27D4_EB4F),
         )
     }
 
@@ -1175,7 +1215,7 @@ impl Game {
         self.state = GameState::Playing;
     }
 
-    fn new_with_rng(rng: StdRng, asteroid_rng: StdRng) -> Self {
+    fn new_with_rng(rng: StdRng, asteroid_rng: StdRng, meteor_rng: StdRng) -> Self {
         let paddle = Paddle::new();
         let ball = Ball::attached_to(&paddle);
         Self {
@@ -1204,6 +1244,9 @@ impl Game {
             gate_open: false,
             asteroids: Vec::new(),
             asteroid_timer: ASTEROID_FIRST_SPAWN_SECS,
+            meteors: Vec::new(),
+            meteors_left: 0,
+            meteor_timer: 0.0,
             features: Features::default(),
             rally: 0,
             best_rally: 0,
@@ -1214,6 +1257,7 @@ impl Game {
             stall_nudges: 0,
             rng,
             asteroid_rng,
+            meteor_rng,
         }
     }
 
@@ -1377,6 +1421,9 @@ impl Game {
         }
         if self.state == GameState::Playing && !self.ball.attached {
             self.update_asteroids(dt_fixed);
+        }
+        if self.state == GameState::Playing && !self.ball.attached {
+            self.update_meteors(dt_fixed);
         }
     }
 
@@ -1660,7 +1707,20 @@ impl Game {
         // An `i32` range, as v1 drew it: the same draw over 0..3 keeps
         // `Features::V1` runs drop for drop identical to v1.
         let kind = kinds[self.rng.random_range(0..kinds.len() as i32) as usize];
+        let kind = self.or_meteor_rain(kind);
         self.spawn_powerup(x, y, kind);
+    }
+
+    /// The capsule a random drop becomes: the one drawn, or, [`METEOR_SHARE`]
+    /// of the time, the Meteor rain in its place. The rain is drawn after
+    /// the others and from its own stream, so it is rare whatever else is
+    /// enabled and moves no other drop.
+    fn or_meteor_rain(&mut self, drawn: PowerUpKind) -> PowerUpKind {
+        if self.features.meteors && self.meteor_rng.random_bool(METEOR_SHARE) {
+            PowerUpKind::MeteorRain
+        } else {
+            drawn
+        }
     }
 
     /// A loaded level's authored bonus, if the brick at (`x`, `y`) has one.
@@ -1680,13 +1740,17 @@ impl Game {
         let drawable = self.drawable_powerups();
         let kind = match drop {
             AuthoredDrop::Kind(kind) => self.enabled_powerups().contains(&kind).then_some(kind),
-            AuthoredDrop::Random => Some(drawable[self.rng.random_range(0..drawable.len())]),
+            AuthoredDrop::Random => {
+                let drawn = drawable[self.rng.random_range(0..drawable.len())];
+                Some(self.or_meteor_rain(drawn))
+            }
             AuthoredDrop::RandomHelpful => {
                 let helpful: Vec<_> = drawable
                     .into_iter()
                     .filter(|&k| k != PowerUpKind::Tiny)
                     .collect();
-                Some(helpful[self.rng.random_range(0..helpful.len())])
+                let drawn = helpful[self.rng.random_range(0..helpful.len())];
+                Some(self.or_meteor_rain(drawn))
             }
         };
         if let Some(kind) = kind {
@@ -1699,7 +1763,9 @@ impl Game {
         self.events.push(GameEvent::PowerUpSpawned(kind));
     }
 
-    /// The power-ups this game can drop, in the order v1 drew them.
+    /// The power-ups this game draws a drop from, in the order v1 drew
+    /// them. The Meteor rain is not among them: it takes a drawn capsule's
+    /// place ([`Game::or_meteor_rain`]).
     fn enabled_powerups(&self) -> Vec<PowerUpKind> {
         let mut kinds = vec![
             PowerUpKind::Widen,
@@ -1820,7 +1886,7 @@ impl Game {
             && powerup.y <= self.paddle.bottom()
     }
 
-    /// Applies one of the spec's eleven power-up effects. The match has no
+    /// Applies one of the spec's twelve power-up effects. The match has no
     /// wildcard arm, so a `PowerUpKind` variant added without handling it
     /// here fails to build.
     fn apply_powerup(&mut self, kind: PowerUpKind) {
@@ -1838,6 +1904,12 @@ impl Game {
             }
             PowerUpKind::Break => {
                 self.gate_open = true;
+            }
+            PowerUpKind::MeteorRain => {
+                // A rain caught during a rain starts it over: full again,
+                // not added to (the timers' rule).
+                self.meteors_left = METEOR_COUNT;
+                self.meteor_timer = 0.0;
             }
             PowerUpKind::Laser => {
                 self.gun = Some(Gun {
@@ -2019,6 +2091,8 @@ impl Game {
         self.bolts.clear();
         self.asteroids.clear();
         self.asteroid_timer = ASTEROID_FIRST_SPAWN_SECS;
+        self.meteors.clear();
+        self.meteors_left = 0;
     }
 
     /// Spawns, moves and retires asteroids for one tick of play. Paddle
@@ -2106,6 +2180,78 @@ impl Game {
                 .push(Contact::from_blast(brick, [x, y]).event(Striker::Blast));
         }
         for brick in destroyed {
+            self.on_brick_destroyed(brick);
+        }
+    }
+
+    /// One tick of a Meteor rain: sends the next meteorite when it is due,
+    /// moves the ones in flight, and lands each on the first brick under
+    /// it. A meteorite aims at a destructible brick's column, so it falls
+    /// on that brick or on whatever covers it, never on the paddle; one
+    /// whose column empties under it burns out.
+    fn update_meteors(&mut self, dt_fixed: f32) {
+        if self.meteors_left > 0 {
+            self.meteor_timer -= dt_fixed;
+            if self.meteor_timer <= 0.0 {
+                self.meteor_timer += METEOR_INTERVAL_SECS;
+                self.meteors_left -= 1;
+                let targets: Vec<f32> = self
+                    .bricks
+                    .iter()
+                    .filter(|b| b.kind != BrickKind::Indestructible)
+                    .map(|b| b.x)
+                    .collect();
+                if !targets.is_empty() {
+                    let x = targets[self.meteor_rng.random_range(0..targets.len())];
+                    self.meteors.push(Meteor {
+                        x,
+                        y: -METEOR_RADIUS,
+                        vy: METEOR_FALL_SPEED,
+                        radius: METEOR_RADIUS,
+                    });
+                }
+            }
+        }
+
+        let mut struck = false;
+        let mut meteors = std::mem::take(&mut self.meteors);
+        meteors.retain_mut(|m| {
+            m.y += m.vy * dt_fixed;
+            let over = |b: &Brick| m.x >= b.left() && m.x <= b.right();
+            let (tip, tail) = (m.y + m.radius, m.y - m.radius);
+            if let Some(index) = self
+                .bricks
+                .iter()
+                .position(|b| over(b) && tip >= b.top() && tail <= b.bottom())
+            {
+                self.meteor_strikes(index, m.x);
+                struck = true;
+                return false;
+            }
+            self.bricks.iter().any(|b| over(b) && b.bottom() > tail)
+        });
+        self.meteors = meteors;
+        // A meteorite can take the level's last brick, as a blast can.
+        if struck && self.destructible_bricks_remaining() == 0 {
+            self.advance_level();
+        }
+    }
+
+    /// A meteorite lands on brick `index`, at `x` on its top face: a
+    /// destructible brick breaks outright, armored or not (scored, and
+    /// rolling its drop, like any broken brick); an indestructible one
+    /// only takes the hit.
+    fn meteor_strikes(&mut self, index: usize, x: f32) {
+        let brick = self.bricks[index];
+        self.stall_secs = 0.0;
+        self.events
+            .push(GameEvent::MeteorStruck { x, y: brick.top() });
+        if brick.kind == BrickKind::Indestructible {
+            let above = [x, brick.top() - 1.0];
+            self.events
+                .push(Contact::from_blast(brick, above).event(Striker::Blast));
+        } else {
+            self.bricks.remove(index);
             self.on_brick_destroyed(brick);
         }
     }
@@ -3118,12 +3264,264 @@ mod tests {
             (200..=400).contains(&spawned),
             "expected roughly 15% of 2000 destroyed bricks to drop a power-up, got {spawned}"
         );
-        // Eleven kinds, evenly: about 27 each out of ~300, std dev ~5.
+        // The eleven drawn kinds, evenly: about 27 each of ~300, std dev ~5. The
+        // twelfth, the Meteor rain, is the rare one and has its own test.
+        kinds.remove(&PowerUpKind::MeteorRain);
         assert_eq!(kinds.len(), 11, "{kinds:?}");
         assert!(
             kinds.values().all(|&n| (8..=70).contains(&n)),
             "{kinds:?} out of {spawned}"
         );
+    }
+
+    // -- power-ups: Meteor rain ---------------------------------------------
+
+    /// The kinds of `rolls` drops in a row, `None` where nothing dropped.
+    fn drops(game: &mut Game, rolls: usize) -> Vec<Option<PowerUpKind>> {
+        (0..rolls)
+            .map(|_| {
+                game.powerups.clear();
+                game.maybe_drop_powerup(400.0, 300.0);
+                game.powerups.first().map(|p| p.kind)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_meteor_rain_is_rare_and_moves_no_other_drop() {
+        let without = Features {
+            meteors: false,
+            ..Features::ALL
+        };
+        let mut with_rain = Game::with_seed(11);
+        let mut plain = Game::with_seed(11).with_features(without);
+        let (a, b) = (drops(&mut with_rain, 60_000), drops(&mut plain, 60_000));
+        let dropped = b.iter().flatten().count();
+        let rains = a
+            .iter()
+            .filter(|k| **k == Some(PowerUpKind::MeteorRain))
+            .count();
+        // About 3% of some 9,000 drops: 270, std dev 16.
+        let share = rains as f64 / dropped as f64;
+        assert!((0.02..=0.04).contains(&share), "{rains} of {dropped}");
+        // And the rain only ever takes a drop's place: every other drop is
+        // the one the game made before the rain existed.
+        for (i, (with, plain)) in a.iter().zip(&b).enumerate() {
+            assert!(
+                with == plain || *with == Some(PowerUpKind::MeteorRain) && plain.is_some(),
+                "roll {i}: {with:?} vs {plain:?}"
+            );
+        }
+        assert!(!b.contains(&Some(PowerUpKind::MeteorRain)));
+    }
+
+    /// A game in flight for the rain's tests: no asteroids, the ball kept
+    /// out of the way.
+    fn under_the_rain(bricks: Vec<Brick>) -> Game {
+        let mut game = Game::with_seed(5).with_features(Features {
+            asteroids: false,
+            ..Features::ALL
+        });
+        game.state = GameState::Playing;
+        game.bricks = bricks;
+        game.ball.attached = false;
+        game
+    }
+
+    /// Plays `secs` with the ball parked over the paddle, and returns what
+    /// happened.
+    fn rain_for(game: &mut Game, secs: f32) -> Vec<GameEvent> {
+        let mut events = Vec::new();
+        for _ in 0..(secs / DT) as usize {
+            (game.ball.x, game.ball.y) = (game.paddle.x, game.paddle.top() - 60.0);
+            (game.ball.vx, game.ball.vy) = (0.0, -BALL_LAUNCH_SPEED);
+            game.tick(&Input::default(), DT);
+            events.append(&mut game.events);
+        }
+        events
+    }
+
+    fn strikes(events: &[GameEvent]) -> usize {
+        events
+            .iter()
+            .filter(|e| matches!(e, GameEvent::MeteorStruck { .. }))
+            .count()
+    }
+
+    /// `columns` x `rows` of bricks of one kind, from the top.
+    fn wall_of(columns: usize, rows: usize, kind: BrickKind, hits: u8) -> Vec<Brick> {
+        (0..rows)
+            .flat_map(|row| {
+                (0..columns).map(move |col| {
+                    let (x, y) = (100.0 + 64.0 * col as f32, 80.0 + 24.0 * row as f32);
+                    test_brick_at(x, y, kind, hits, 10)
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_meteor_rain_lands_twelve_meteorites_each_breaking_a_brick() {
+        let mut game = under_the_rain(wall_of(8, 3, BrickKind::Normal, 1));
+        game.apply_powerup(PowerUpKind::MeteorRain);
+        let events = rain_for(&mut game, 4.0);
+        assert_eq!(strikes(&events), usize::from(METEOR_COUNT));
+        assert_eq!(game.bricks.len(), 24 - usize::from(METEOR_COUNT));
+        assert_eq!(game.bricks_broken, u32::from(METEOR_COUNT));
+        assert_eq!(
+            game.score,
+            10 * u32::from(METEOR_COUNT),
+            "scored like any brick"
+        );
+        assert!(
+            game.meteors.is_empty() && game.meteors_left == 0,
+            "and it is over"
+        );
+        // Each one fell on the top brick of its column: what is left of a
+        // column is its bottom, with no gap under any brick.
+        let bottom = 80.0 + 24.0 * 2.0;
+        for brick in &game.bricks {
+            let under = game
+                .bricks
+                .iter()
+                .filter(|b| b.x == brick.x && b.y > brick.y)
+                .count();
+            let rows_under = ((bottom - brick.y) / 24.0).round() as usize;
+            assert_eq!(
+                under, rows_under,
+                "a gap under the brick at {}, {}",
+                brick.x, brick.y
+            );
+        }
+    }
+
+    #[test]
+    fn a_meteorite_breaks_an_armored_brick_outright() {
+        let mut game = under_the_rain(wall_of(8, 2, BrickKind::Armored, 2));
+        game.apply_powerup(PowerUpKind::MeteorRain);
+        rain_for(&mut game, 4.0);
+        assert_eq!(game.bricks.len(), 16 - usize::from(METEOR_COUNT));
+        assert!(
+            game.bricks.iter().all(|b| b.hits_remaining == 2),
+            "none merely cracked"
+        );
+    }
+
+    #[test]
+    fn steel_stops_a_meteorite_and_keeps_what_it_covers() {
+        // A row of steel over a row of bricks: the rain aims at the bricks
+        // and lands on their roof.
+        let mut bricks = wall_of(8, 1, BrickKind::Indestructible, 1);
+        bricks.extend(
+            wall_of(8, 2, BrickKind::Normal, 1)
+                .into_iter()
+                .filter(|b| b.y > 80.0),
+        );
+        let mut game = under_the_rain(bricks);
+        game.apply_powerup(PowerUpKind::MeteorRain);
+        let events = rain_for(&mut game, 4.0);
+        assert_eq!(strikes(&events), usize::from(METEOR_COUNT));
+        assert_eq!(game.bricks.len(), 16, "nothing broke");
+        assert_eq!(game.score, 0);
+        let on_steel = events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    GameEvent::BrickStruck {
+                        kind: BrickKind::Indestructible,
+                        by: Striker::Blast,
+                        normal,
+                        ..
+                    } if normal[1] < 0.0
+                )
+            })
+            .count();
+        assert_eq!(
+            on_steel,
+            usize::from(METEOR_COUNT),
+            "each hit shows on the steel's top"
+        );
+    }
+
+    #[test]
+    fn a_meteorite_never_reaches_the_paddle() {
+        // Two meteorites over one brick, with another brick elsewhere so
+        // the level goes on: the first breaks it, the second finds its
+        // column empty and burns out above the paddle.
+        let mut game = under_the_rain(vec![
+            test_brick_at(200.0, 100.0, BrickKind::Normal, 1, 10),
+            test_brick_at(600.0, 100.0, BrickKind::Normal, 1, 10),
+        ]);
+        for y in [60.0, 20.0] {
+            game.meteors.push(Meteor {
+                x: 200.0,
+                y,
+                vy: METEOR_FALL_SPEED,
+                radius: METEOR_RADIUS,
+            });
+        }
+        let mut lowest = 0.0f32;
+        for _ in 0..240 {
+            rain_for(&mut game, DT);
+            lowest = game.meteors.iter().map(|m| m.y).fold(lowest, f32::max);
+        }
+        assert!(game.meteors.is_empty());
+        assert_eq!(game.bricks.len(), 1, "only the brick under them broke");
+        assert!(lowest < 140.0, "the second went no further than {lowest}");
+        assert_eq!(game.lives, STARTING_LIVES);
+    }
+
+    #[test]
+    fn a_rain_that_takes_the_last_brick_clears_the_level() {
+        let mut game = under_the_rain(vec![test_brick_at(300.0, 100.0, BrickKind::Armored, 2, 20)]);
+        game.apply_powerup(PowerUpKind::MeteorRain);
+        let events = rain_for(&mut game, 1.0);
+        assert!(events.contains(&GameEvent::LevelCleared));
+        assert_eq!(game.level, 2);
+        assert!(
+            game.meteors.is_empty() && game.meteors_left == 0,
+            "the rain ends with the level"
+        );
+    }
+
+    #[test]
+    fn catching_the_rain_again_starts_it_over() {
+        let mut game = under_the_rain(wall_of(10, 4, BrickKind::Normal, 1));
+        game.apply_powerup(PowerUpKind::MeteorRain);
+        let mut landed = strikes(&rain_for(&mut game, 1.0));
+        let sent = usize::from(METEOR_COUNT - game.meteors_left);
+        assert!(
+            (3..usize::from(METEOR_COUNT)).contains(&sent),
+            "{sent} sent in a second"
+        );
+        // Caught again mid-rain: twelve more from here, not twelve plus
+        // the ones the first rain had left.
+        game.apply_powerup(PowerUpKind::MeteorRain);
+        landed += strikes(&rain_for(&mut game, 4.0));
+        assert_eq!(landed, sent + usize::from(METEOR_COUNT));
+    }
+
+    #[test]
+    fn a_lost_life_ends_the_rain() {
+        let mut game = under_the_rain(wall_of(10, 4, BrickKind::Normal, 1));
+        game.apply_powerup(PowerUpKind::MeteorRain);
+        rain_for(&mut game, 0.5);
+        assert!(game.meteors_left > 0, "mid-rain");
+        game.lose_life();
+        assert!(game.meteors.is_empty() && game.meteors_left == 0);
+        game.ball.attached = false;
+        assert_eq!(
+            strikes(&rain_for(&mut game, 3.0)),
+            0,
+            "nothing falls after it"
+        );
+    }
+
+    #[test]
+    fn classic_has_no_meteor_rain() {
+        let mut game = Game::with_seed(11).with_features(Features::V1);
+        assert!(!drops(&mut game, 20_000).contains(&Some(PowerUpKind::MeteorRain)));
     }
 
     #[test]
@@ -3889,7 +4287,7 @@ mod tests {
         for finale in [8, 16, 24, 32] {
             let kinds = kinds_rolled_on(finale);
             assert!(!kinds.contains(&PowerUpKind::Break), "level {finale}");
-            assert_eq!(kinds.len(), 10, "every other kind still drops");
+            assert_eq!(kinds.len(), 11, "every other kind still drops");
         }
         assert!(kinds_rolled_on(7).contains(&PowerUpKind::Break));
         assert!(kinds_rolled_on(9).contains(&PowerUpKind::Break));
