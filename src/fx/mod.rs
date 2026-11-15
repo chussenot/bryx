@@ -433,6 +433,10 @@ impl FxSystem {
                     self.asteroid([x, y]);
                     blast = Some([x, y]);
                 }
+                GameEvent::MeteorStruck { x, y } => {
+                    self.meteor([x, y]);
+                    blast = Some([x, y]);
+                }
                 GameEvent::LevelCleared if !won && !has(&GameEvent::Warped) => {
                     // The fanfare's first bar is its run up; the second
                     // opens on the climb to the held high E, six sixteenths
@@ -668,6 +672,28 @@ impl FxSystem {
             light: 0.015,
         };
         self.spawn(0.4, 0.0, BRICK_TOP, shock);
+    }
+
+    /// A meteorite landing on a brick: a small hot core, a tight ring and
+    /// sparks thrown back up the way it came. Smaller than a blast: twelve
+    /// land in a rain, and the brick's own break is the main event.
+    fn meteor(&mut self, at: [f32; 2]) {
+        let core = Kind::Core {
+            center: at,
+            radius: (5.0, 14.0),
+            color: palette::FX_BLAST_CORE,
+            peak: 2.6,
+        };
+        self.spawn(0.12, 0.0, BRICK_TOP, core);
+        let ring = Kind::Ring {
+            center: at,
+            radius: (6.0, 26.0),
+            width: (4.0, 1.0),
+            color: palette::METEOR,
+            peak: 2.0,
+        };
+        self.spawn(0.26, 0.0, BRICK_TOP, ring);
+        self.sparks(at, [0.0, -1.0], 6);
     }
 
     /// An asteroid breaking up: dull rock and dust, a little fire inside.

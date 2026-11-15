@@ -35,6 +35,8 @@ pub enum PowerUpKind {
     Break,
     ExplosiveBall,
     MetalBall,
+    /// The rare one: a rain of meteorites on the bricks.
+    MeteorRain,
 }
 
 /// Something the simulation did this tick.
@@ -66,6 +68,11 @@ pub enum GameEvent {
     /// the renderers draw it like an asteroid's explosion, the director
     /// plays it a little quieter (there can be many in a row).
     BallExploded { x: f32, y: f32 },
+    /// A meteorite of the Meteor rain landed on a brick, at the point of
+    /// its top face it hit. The brick's own event follows in the same
+    /// tick: `BrickDestroyedAt` if it broke, `BrickStruck` (by a blast) if
+    /// it is indestructible.
+    MeteorStruck { x: f32, y: f32 },
     /// A ball fell below the bottom edge. Fires once per ball, including
     /// during multiball — see `LifeLost` for the life-loss rule.
     BallLost,

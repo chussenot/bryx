@@ -130,6 +130,10 @@ const MAX_POWERUPS: usize = 16;
 /// `game.rs` keeps at most 3 asteroids; this bounds the instance buffer
 /// the same defensive way.
 const MAX_ASTEROIDS: usize = 8;
+/// A Meteor rain sends 12, a few in flight at once; each draws itself and
+/// [`METEOR_TRAIL`] fading copies behind it.
+const MAX_METEORS: usize = 12;
+const METEOR_TRAIL: usize = 5;
 /// `game.rs` caps bolts in flight at 16.
 const MAX_BOLTS: usize = 16;
 
@@ -161,6 +165,7 @@ const MAX_QUADS: usize = 2
     + MAX_EXTRA_BALLS
     + MAX_POWERUPS
     + MAX_ASTEROIDS
+    + MAX_METEORS * (1 + METEOR_TRAIL)
     + MAX_BOLTS
     + 1 /* the Break gate */;
 
@@ -959,6 +964,7 @@ impl Renderer {
                 + curr.extra_balls.len().min(MAX_EXTRA_BALLS)
                 + curr.powerups.len().min(MAX_POWERUPS)
                 + curr.asteroids.len().min(MAX_ASTEROIDS)
+                + curr.meteors.len().min(MAX_METEORS) * (1 + METEOR_TRAIL)
                 + curr.bolts.len().min(MAX_BOLTS)
                 + movement::MAX_GROUND_RECTS
                 + 1,
@@ -1131,6 +1137,32 @@ impl Renderer {
                 palette::ASTEROID.linear(),
             )
         }));
+
+        // Meteorites: the same rock, glowing, each with a short streak
+        // behind it (the way it came: straight up), drawn first so the
+        // rock sits on top.
+        for meteor in curr.meteors.iter().take(MAX_METEORS) {
+            // The streak is the blast's white-hot core near the rock,
+            // cooling to the rock's amber and thinning as it trails off.
+            let (hot, cool) = (palette::FX_BLAST_CORE.linear(), palette::METEOR.linear());
+            for k in (1..=METEOR_TRAIL).rev() {
+                let fade = 1.0 - k as f32 / (METEOR_TRAIL + 1) as f32;
+                let back = meteor.radius * 1.4 * k as f32;
+                let mix = |i: usize| cool[i] + (hot[i] - cool[i]) * fade * fade;
+                instances.push(QuadInstance::new_textured(
+                    shaken(meteor.x, meteor.y - back),
+                    [meteor.radius * (0.25 + 0.7 * fade), meteor.radius],
+                    rock_uv,
+                    [mix(0), mix(1), mix(2), 0.8 * fade],
+                ));
+            }
+            instances.push(QuadInstance::new_textured(
+                shaken(meteor.x, meteor.y),
+                [meteor.radius, meteor.radius],
+                rock_uv,
+                palette::METEOR.linear(),
+            ));
+        }
 
         self.queue
             .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));

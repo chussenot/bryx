@@ -86,6 +86,8 @@ const MAX_CUBE_INSTANCES: usize = 1 /* paddle */ + MAX_BRICKS + MAX_POWERUPS + W
         + 1 /* the Break gate */ + movement::MAX_GROUND_RECTS;
 /// `game.rs` keeps at most 3 asteroids; a defensive bound like the others.
 const MAX_ASTEROIDS: usize = 8;
+/// A Meteor rain sends 12, a few in flight at once; they draw as rocks.
+const MAX_METEORS: usize = 12;
 /// Half the height of an act's ground lines as slabs on the floor: low
 /// enough to read as drawn on it.
 const GROUND_HALF_HEIGHT: f32 = 0.5;
@@ -1360,7 +1362,7 @@ impl Renderer3D {
         });
         let rock_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("render3d rock instances"),
-            size: (size_of::<Instance3D>() * MAX_ASTEROIDS) as wgpu::BufferAddress,
+            size: (size_of::<Instance3D>() * (MAX_ASTEROIDS + MAX_METEORS)) as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -1648,6 +1650,19 @@ impl Renderer3D {
                 )
                 .with_rotation(spin.to_array())
             })
+            // Meteorites: the same rock, glowing, flying just above the
+            // bricks' tops and spinning faster than an asteroid drifts.
+            .chain(curr.meteors.iter().take(MAX_METEORS).map(|meteor| {
+                let (x, z) = world_xz(meteor.x, meteor.y);
+                let angle = self.powerup_spin_angle * 4.0 + meteor.x * 0.05;
+                let spin = Quat::from_axis_angle(Vec3::new(1.0, 0.4, 0.2).normalize(), angle);
+                Instance3D::new(
+                    [x, BRICK_THICKNESS + meteor.radius, z],
+                    [meteor.radius; 3],
+                    palette::METEOR.linear(),
+                )
+                .with_rotation(spin.to_array())
+            }))
             .collect();
 
         // Bricks -- front face textured from `self.atlas` (see

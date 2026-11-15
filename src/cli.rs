@@ -43,8 +43,8 @@ pub struct Args {
     /// `None` keeps the default of every paddle hit; a missing or
     /// non-numeric value is ignored like any other bad value here.
     pub autopilot_every: Option<u32>,
-    /// `--classic`: v1's rules, without the post-v1 additions (the Glue
-    /// power-up, asteroids). See `game::Features`.
+    /// `--classic`: v1's rules, without the post-v1 additions (the newer
+    /// power-ups, asteroids). See `game::Features`.
     pub classic: bool,
     /// `--rally-score`: the experimental rally scoring
     /// (`game::Features::rally_score`), for every mode but Classic.

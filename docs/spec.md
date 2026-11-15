@@ -69,8 +69,9 @@ exceeds ball radius — assert this in a test, not a comment).
 paddle. 0 lives → GameOver with final score. All destructible bricks
 cleared → next level; last level cleared → Victory screen.
 
-**Power-ups (exactly these eleven, nothing more)**: dropped by 15% of
-destroyed bricks, uniformly among the enabled ones, fall at 140 px/s, caught with
+**Power-ups (exactly these twelve, nothing more)**: dropped by 15% of
+destroyed bricks, uniformly among the enabled ones (but for the rare Meteor
+rain, which takes 3% of them: see below), fall at 140 px/s, caught with
 the paddle. A loaded levelset's level whose author placed bonuses drops
 exactly those instead: each marked brick drops its own (mapped in
 `docs/levelset-format.md`), every time, and unmarked bricks drop nothing;
@@ -80,7 +81,7 @@ a power-up the game has switched off (`--classic`) drops nothing:
 - Multiball (spawn 2 extra balls from current ball position; life is
   lost only when the LAST ball drops)
 - Glue, Laser, Super laser, Tiny, Player, Break, Explosive ball, Metal
-  ball (added after v1, see below)
+  ball, Meteor rain (added after v1, see below)
 
 **HUD**: score (top-left), lives as icons (top-right), level number
 (top-center). Menu and pause screens: title + key hints, keyboard only;
@@ -314,6 +315,24 @@ move.
   catching either replaces the one active, timer full again; like the guns,
   they outlast a lost life and end when the run does. A blast or a pass
   that takes a level's last bricks clears it.
+- **Meteor rain** (power-up, letter R, the rare one): 12 meteorites fall
+  on the bricks, one every 0.2 s, straight down at 520 px/s. Each aims at
+  the column of a destructible brick picked at random and lands on the
+  first brick in its way.
+  - A destructible brick it lands on breaks outright, armored ones
+    included: scored, counted in the rally and rolling its drop like any
+    broken brick.
+  - An indestructible brick stops it, unharmed, and keeps what it covers.
+  - A meteorite never reaches the paddle: one whose column empties under
+    it burns out. A rain that takes a level's last brick clears it.
+  - Catching it again during a rain starts the rain over (12 more from
+    then, not added to what was left). A lost life or a new level ends it.
+  - **Rarity.** It is not drawn with the others. A drop is first drawn
+    as before, uniformly among the enabled power-ups; then, 3% of the
+    time, the Meteor rain takes its place. So it stays at 3% of drops
+    whatever else is enabled, and every other drop falls where it would
+    have without it. A levelset's `?` and joker follow the same rule; no
+    levelset character names it.
 - **Asteroids**: from 4 s into a serve's flight, then every 5–10 s, one
   drifts in from the top edge (at most 3 at once), over the bricks, down at
   40 px/s with a sideways drift and wobble that flip at the walls. A ball

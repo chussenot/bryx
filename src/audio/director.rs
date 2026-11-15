@@ -397,6 +397,14 @@ impl Director {
                     ball_blast = true;
                     out.push(play(Cue::Explosion, 0.4, x));
                 }
+                // A meteorite's strike: the explosion a fifth up and
+                // quieter still, a crack more than a boom. Twelve land in
+                // a rain, under the notes of the bricks they break; one a
+                // tick at most, with the ball's blasts.
+                GameEvent::MeteorStruck { x, .. } if !ball_blast => {
+                    ball_blast = true;
+                    out.push(pitched(Cue::Explosion, 0.35, x, semitones(7.0)));
+                }
                 GameEvent::PowerUpCaught(kind) => out.push(match kind {
                     PowerUpKind::Tiny => play(Cue::Tiny, 0.55, paddle_x),
                     PowerUpKind::Player => Command::Play {
@@ -657,6 +665,36 @@ mod tests {
         game.level = 17;
         let last = pitches(&director.observe(&game, &[brick_at(400.0), E::LevelCleared]));
         assert_eq!(last, vec![semitones(11.0)], "D sharp, over Bridges");
+    }
+
+    #[test]
+    fn a_meteorite_strikes_as_a_crack_where_it_lands_once_a_tick() {
+        let (mut director, game) = playing();
+        let out = director.observe(
+            &game,
+            &[
+                E::MeteorStruck { x: 200.0, y: 90.0 },
+                E::MeteorStruck { x: 600.0, y: 90.0 },
+            ],
+        );
+        let cracks: Vec<_> = out
+            .iter()
+            .filter_map(|c| match *c {
+                Command::Play {
+                    cue: Cue::Explosion,
+                    gain,
+                    pan,
+                    pitch,
+                    ..
+                } => Some((gain, pan, pitch)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cracks.len(), 1, "one a tick, however many land: {out:?}");
+        let (gain, pan, pitch) = cracks[0];
+        assert!(gain < 0.4, "under a ball's blast, far under an asteroid's");
+        assert!(pan < 0.0, "heard on the left, where it landed");
+        assert_eq!(pitch, semitones(7.0), "a fifth up: a crack, not a boom");
     }
 
     #[test]

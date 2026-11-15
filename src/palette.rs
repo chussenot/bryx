@@ -213,6 +213,9 @@ pub const CAPSULE_EXPLOSIVE_BALL: Rgb = hex(0xC5F03C);
 /// Polished steel, the lightest capsule: Tiny's gray is the dull one.
 /// Every ball wears it while the power lasts.
 pub const CAPSULE_METAL_BALL: Rgb = hex(0xE6E9F0);
+/// Magenta, the one hue between Multiball's purple and Glue's pink that
+/// no capsule had: the rare capsule reads as none of the others.
+pub const CAPSULE_METEOR_RAIN: Rgb = hex(0xE05BE8);
 
 /// A capsule's hue. The open Break gate, the laser bolts and a powered ball
 /// reuse their capsule's hue, so the cause and the effect read as one
@@ -230,12 +233,14 @@ pub fn capsule(kind: PowerUpKind) -> Rgb {
         PowerUpKind::Break => CAPSULE_BREAK,
         PowerUpKind::ExplosiveBall => CAPSULE_EXPLOSIVE_BALL,
         PowerUpKind::MetalBall => CAPSULE_METAL_BALL,
+        PowerUpKind::MeteorRain => CAPSULE_METEOR_RAIN,
     }
 }
 
 /// The letter on a capsule: the color-blind-safe half of its identity.
-/// Unique across the eleven; Super laser takes X because S is Slow's, and
-/// Metal ball takes I (iron) because M is Multiball's.
+/// Unique across the twelve; Super laser takes X because S is Slow's,
+/// Metal ball takes I (iron) because M is Multiball's, and Meteor rain
+/// takes R (rain) for the same reason.
 pub fn capsule_letter(kind: PowerUpKind) -> &'static str {
     match kind {
         PowerUpKind::Widen => "W",
@@ -249,11 +254,12 @@ pub fn capsule_letter(kind: PowerUpKind) -> &'static str {
         PowerUpKind::Break => "B",
         PowerUpKind::ExplosiveBall => "E",
         PowerUpKind::MetalBall => "I",
+        PowerUpKind::MeteorRain => "R",
     }
 }
 
 /// The ink a capsule's letter is set in: the field's own dark, which
-/// clears 4.5:1 on all eleven hues (`capsule_letters_clear_contrast`).
+/// clears 4.5:1 on all twelve hues (`capsule_letters_clear_contrast`).
 pub const CAPSULE_INK: Rgb = FIELD;
 
 // -- hazards and effects ---------------------------------------------------
@@ -261,6 +267,9 @@ pub const CAPSULE_INK: Rgb = FIELD;
 /// Asteroids: cratered stone, cool and desaturated, so the one warm thing
 /// about them is the explosion they become.
 pub const ASTEROID: Rgb = hex(0x8B7F9A);
+/// A meteorite of the Meteor rain: rock heated to the explosion's amber,
+/// so it reads as the thing about to strike, not as an asteroid to hit.
+pub const METEOR: Rgb = hex(0xFFB55E);
 /// An asteroid's explosion.
 pub const EXPLOSION: Rgb = hex(0xFFB55E);
 
@@ -353,7 +362,7 @@ mod tests {
         );
     }
 
-    const ALL_CAPSULES: [PowerUpKind; 11] = [
+    const ALL_CAPSULES: [PowerUpKind; 12] = [
         PowerUpKind::Widen,
         PowerUpKind::Slow,
         PowerUpKind::Multiball,
@@ -365,6 +374,7 @@ mod tests {
         PowerUpKind::Break,
         PowerUpKind::ExplosiveBall,
         PowerUpKind::MetalBall,
+        PowerUpKind::MeteorRain,
     ];
 
     /// WCAG relative luminance of an sRGB color.
