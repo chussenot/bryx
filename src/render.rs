@@ -152,6 +152,13 @@ const TRAIL_LEN: usize = 4;
 /// buffer for a full second copy of `MAX_BRICKS`.
 const MAX_DESTROY_GHOSTS: usize = 16;
 
+/// Falling bricks drawn at once: a whole structure coming down.
+const MAX_DEBRIS: usize = MAX_BRICKS;
+/// A load mark's thickness, in px.
+const BEARING_BAR: f32 = 2.0;
+/// A falling brick's tint: its sprite at four fifths of its light.
+const DEBRIS_TINT: [f32; 4] = [0.8, 0.8, 0.8, 1.0];
+
 /// Fixed number of quad instances the instance buffer has room for: the
 /// paddle, the ball trail, the ball, the largest possible brick grid (plus
 /// its worst-case destroy-ghosts), and every capped entity list. The HUD
@@ -160,7 +167,9 @@ const MAX_DESTROY_GHOSTS: usize = 16;
 const MAX_QUADS: usize = 2
     + movement::MAX_GROUND_RECTS
     + TRAIL_LEN
-    + MAX_BRICKS
+    // A brick, its structural glow and its load mark.
+    + MAX_BRICKS * 3
+    + MAX_DEBRIS
     + MAX_DESTROY_GHOSTS
     + MAX_EXTRA_BALLS
     + MAX_POWERUPS
@@ -200,11 +209,21 @@ const PADDLE_TINT_STRENGTH: f32 = 0.55;
 /// flag) tells us whether the first hit has already landed -- mirrors
 /// `assets::pack_filename`'s doc on why armored gets an intact/hit pair.
 fn brick_sprite(brick: &Brick) -> SpriteId {
-    match brick.kind {
+    kind_sprite(brick.kind, brick.hits_remaining)
+}
+
+/// `brick_sprite` from a kind and hit count alone: a falling brick is no
+/// longer a `Brick`.
+fn kind_sprite(kind: BrickKind, hits_remaining: u8) -> SpriteId {
+    match kind {
         BrickKind::Normal => SpriteId::BrickNormal,
-        BrickKind::Armored if brick.hits_remaining >= 2 => SpriteId::BrickArmoredIntact,
+        BrickKind::Armored if hits_remaining >= 2 => SpriteId::BrickArmoredIntact,
         BrickKind::Armored => SpriteId::BrickArmoredHit,
         BrickKind::Indestructible => SpriteId::BrickIndestructible,
+        BrickKind::Support if hits_remaining >= 2 => SpriteId::BrickSupport,
+        BrickKind::Support => SpriteId::BrickSupportHit,
+        BrickKind::Beam | BrickKind::Tie => SpriteId::BrickBeam,
+        BrickKind::Keystone => SpriteId::BrickKeystone,
     }
 }
 
@@ -959,7 +978,8 @@ impl Renderer {
 
         let mut instances = Vec::with_capacity(
             2 + TRAIL_LEN
-                + curr.bricks.len()
+                + curr.bricks.len() * 3
+                + curr.debris.len().min(MAX_DEBRIS)
                 + destroyed_ghosts.len()
                 + curr.extra_balls.len().min(MAX_EXTRA_BALLS)
                 + curr.powerups.len().min(MAX_POWERUPS)
@@ -1050,16 +1070,55 @@ impl Renderer {
         // was just hit and survived (e.g. armored's first hit) flashes flat
         // white for this one frame instead of its normal sprite -- a tinted
         // *sample* wouldn't pop the same way (see `hit_flash_color`'s doc).
-        instances.extend(curr.bricks.iter().take(MAX_BRICKS).map(|brick| {
+        //
+        // On a structural level a brick also shows what it carries and
+        // what is about to happen to it (`palette::structure_look`, shared
+        // with the 3D renderer): a load mark along its lower edge, a glow
+        // while it cracks or is about to fall, a shake before it lets go.
+        let structural = curr.structure.is_active();
+        for brick in curr.bricks.iter().take(MAX_BRICKS) {
+            let look = if structural {
+                palette::structure_look(curr, brick, reduced_motion)
+            } else {
+                palette::StructureLook::default()
+            };
             let half_size = [brick.width / 2.0, brick.height / 2.0];
-            let center = shaken(brick.x, brick.y);
+            let center = shaken(brick.x + look.offset[0], brick.y + look.offset[1]);
             if hit_flash.contains(&(brick.x, brick.y)) {
-                QuadInstance::new(center, half_size, hit_flash_color())
+                instances.push(QuadInstance::new(center, half_size, hit_flash_color()));
             } else {
                 let uv = self.sprite_atlas.uv_rect(brick_sprite(brick));
-                QuadInstance::new_textured(center, half_size, uv, WHITE_TINT)
+                instances.push(QuadInstance::new_textured(
+                    center, half_size, uv, WHITE_TINT,
+                ));
             }
-        }));
+            if look.bearing > 0.0 {
+                let [r, g, b, _] = palette::STRUCT_BEARING.linear();
+                let inset = 2.0_f32.min(half_size[0] / 2.0);
+                instances.push(QuadInstance::new(
+                    [center[0], center[1] + half_size[1] - BEARING_BAR],
+                    [(half_size[0] - inset) * look.bearing, BEARING_BAR / 2.0],
+                    [r, g, b, 0.9],
+                ));
+            }
+            if let Some((color, strength)) = look.glow {
+                let [r, g, b, _] = color.linear();
+                instances.push(QuadInstance::new(center, half_size, [r, g, b, strength]));
+            }
+        }
+        // Bricks that let go, falling: their own sprite, a little dimmed,
+        // so what is coming down reads apart from what still stands.
+        for d in curr.debris.iter().take(MAX_DEBRIS) {
+            let uv = self
+                .sprite_atlas
+                .uv_rect(kind_sprite(d.kind, d.hits_remaining));
+            instances.push(QuadInstance::new_textured(
+                shaken(d.x, d.y),
+                [d.width / 2.0, d.height / 2.0],
+                uv,
+                DEBRIS_TINT,
+            ));
+        }
         // Bricks destroyed this frame get one last white "ghost" quad at
         // their former spot -- otherwise a one-hit brick would vanish
         // without ever visibly flashing (see `bricks_just_destroyed`).

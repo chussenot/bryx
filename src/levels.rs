@@ -1,7 +1,9 @@
 //! Level grids as const `&[&str]` data.
 //!
 //! Chars: `.` empty, `1` normal, `2` armored, `X` indestructible. Adding a
-//! level must require touching only this file.
+//! level must require touching only this file. The structural levels
+//! (`STRUCTURES`) add `S` support, `=` beam, `|` tie and `K` keystone; in
+//! them `X` is an anchor (docs/design/structural-gameplay.md).
 //!
 //! ponytail: nothing in `game.rs` calls `parse_level`/reads `LEVELS` yet —
 //! that lands with level load/progression (M3, arkanoid-5rs). Module-wide
@@ -19,7 +21,28 @@ pub const BRICK_HEIGHT: f32 = 22.0;
 pub enum BrickKind {
     Normal,
     Armored,
+    /// Steel. Never breaks, and in a structural level it is an anchor:
+    /// what everything else holds on to.
     Indestructible,
+    /// A load-bearing brick (structural levels): two hits, and it carries
+    /// more than any other.
+    Support,
+    /// A thin girder (structural levels): one hit, and it holds only the
+    /// bricks to its left and right.
+    Beam,
+    /// A thin tie (structural levels): one hit, and it holds only the
+    /// bricks above and below it.
+    Tie,
+    /// The level's objective (structural levels). Nothing that strikes it
+    /// can break it: it comes down when nothing holds it any more.
+    Keystone,
+}
+
+impl BrickKind {
+    /// Whether a ball, a bolt, a blast or falling debris can damage it.
+    pub fn breakable(self) -> bool {
+        !matches!(self, Self::Indestructible | Self::Keystone)
+    }
 }
 
 /// One brick to spawn: top-left corner in grid-local pixels (col *
@@ -46,6 +69,10 @@ pub fn parse_level(grid: &[&str]) -> Vec<BrickSpawn> {
                     '1' => Some(BrickKind::Normal),
                     '2' => Some(BrickKind::Armored),
                     'X' => Some(BrickKind::Indestructible),
+                    'S' => Some(BrickKind::Support),
+                    '=' => Some(BrickKind::Beam),
+                    '|' => Some(BrickKind::Tie),
+                    'K' => Some(BrickKind::Keystone),
                     _ => None,
                 };
                 kind.map(|kind| BrickSpawn {
@@ -460,6 +487,94 @@ pub const CAMPAIGN: &[(&str, &[&str])] = &[
             "X............X",
         ],
     ),
+];
+
+// -- the structures -----------------------------------------------------------
+//
+// Levels built to be brought down, not cleared (docs/concept.md,
+// docs/design/structural-gameplay.md). `X` is an anchor: every other brick
+// stands only while a chain of touching bricks leads from it to one. `S`
+// carries the most, `=` holds sideways and `|` up and down only, and `K`,
+// the keystone, is the objective: no strike breaks it, it falls when
+// nothing holds it. Up to 14 columns by 14 rows.
+//
+// `game.rs` checks every one of them: all of it holds at the start, nothing
+// starts overloaded, and the keystone touches no anchor.
+
+/// One structural level: its name, the line the serve prompt shows under
+/// it, and its grid.
+#[derive(Debug, Clone, Copy)]
+pub struct StructureLevel {
+    pub name: &'static str,
+    pub hint: &'static str,
+    pub grid: &'static [&'static str],
+}
+
+/// The structural levels, in play order. Each teaches one idea.
+pub const STRUCTURES: &[StructureLevel] = &[
+    // Two rows of beams hold a block between two pillars. Cut either row
+    // and the other cannot carry the block alone: it cracks, gives way, and
+    // the block comes down with the keystone in it. An unaimed first serve
+    // lands on the right-hand beams.
+    StructureLevel {
+        name: "First fall",
+        hint: "CUT A BEAM",
+        grid: &[
+            "X............X",
+            "X....1111....X",
+            "X...111111...X",
+            "X===11K111===X",
+            "X...111111...X",
+            "X....1111....X",
+        ],
+    },
+    // A table on two legs, the keystone hung under it by a tie. Break a
+    // leg and the other gives way under the top; or cut the tie, the
+    // precise shot.
+    StructureLevel {
+        name: "Table",
+        hint: "BREAK A LEG",
+        grid: &[
+            "..............",
+            "...11111111...",
+            "...11111111...",
+            "...S..|...S...",
+            "...S..K...S...",
+            "...X......X...",
+        ],
+    },
+    // A slab hung by two ties over a deck that carries the keystone. The
+    // deck takes two hits a brick from below; the slab, dropped, breaks
+    // every brick of it at once.
+    StructureLevel {
+        name: "Bridge",
+        hint: "DROP THE SLAB",
+        grid: &[
+            "..X.......X..",
+            "..|.......|..",
+            "..111111111..",
+            "..111111111..",
+            ".............",
+            ".............",
+            ".XSSSSKSSSSX.",
+        ],
+    },
+    // The keystone in an armored cage, held four ways: two ties above, a
+    // row of beams on each side. It stays up on any two. A slab on two
+    // supports closes the vault from below; the way in is over the walls.
+    StructureLevel {
+        name: "Vault",
+        hint: "LEAVE IT ONE HOLD",
+        grid: &[
+            "X....X.X....X",
+            "X....|.|....X",
+            "X....222....X",
+            "X====2K2====X",
+            "X....222....X",
+            "X...........X",
+            "XS111111111SX",
+        ],
+    },
 ];
 
 #[cfg(test)]

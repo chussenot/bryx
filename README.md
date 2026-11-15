@@ -14,12 +14,13 @@ cargo run --release
 No assets or setup required — it builds and launches straight from a fresh
 clone, into a 32-level campaign: simple rows, staircases, frames, columns,
 and walls of armored and indestructible bricks. The HUD shows each level's
-name. The menu picks what to play: the **Campaign**, **Classic** (the three
+name. The menu picks what to play: the **Campaign**, **Structures** (see
+below), **Classic** (the three
 levels the game was first specified with, under its first rules), one of
 the fetched **Levelsets** (see [Thousands of levels](#thousands-of-levels)),
 or a **Shuffle** of ten levels drawn from all of them. ↑/↓ choose the
-mode, ←/→ the set, Space plays. `--classic` and `--levelset` open the menu
-on that choice.
+mode, ←/→ the set, Space plays. `--classic`, `--structures` and
+`--levelset` open the menu on that choice.
 
 ![The 32 campaign levels](docs/campaign.png)
 
@@ -37,11 +38,49 @@ cargo run --release -- --renderer 3d
 
 ![3D renderer](render3d.png)
 
+## Structures: bring it down
+
+```bash
+cargo run --release -- --structures
+```
+
+![A beam is cut, the beams on the other side crack, and the block comes down with the keystone](docs/design/structures.png)
+
+Four levels where the bricks hold each other up, and the point is not to
+clear them but to find what they stand on.
+[`docs/concept.md`](docs/concept.md) is the idea;
+[`docs/design/structural-gameplay.md`](docs/design/structural-gameplay.md)
+the rules.
+
+- **Steel is an anchor.** Every other brick stands only while a chain of
+  touching bricks leads from it to steel. Cut the last chain and what it
+  held falls, and breaks what it lands on.
+- **A brick that holds others carries them**, and wears a mark along its
+  lower edge, longer the nearer it is to its limit. One carrying too much
+  glows orange, cracks and gives way.
+- **The keystone** (gold, with a diamond) is the objective. Nothing that
+  strikes it breaks it. When nothing holds it, it falls, and the level is
+  won.
+
+| Brick | Look | Hits | Carries |
+|---|---|---|---|
+| Normal | red | 1 | 4 bricks |
+| Armored | blue, then amber | 2 | 3 per hit left |
+| Support | violet, fluted | 2 | 6 per hit left |
+| Beam, tie | pale steel, thin | 1 | 6; a beam holds sideways, a tie up and down |
+| Keystone | gold, a diamond | none | any |
+| Anchor | graphite, hatched | none | any |
+
+A brick brought down scores twice a brick the ball broke, and counts in the
+rally. The same cut always gives the same collapse: no physics engine, no
+chance.
+
 ## Playtesting
 
 `--playtest-log FILE` appends one CSV row per level played: its time, the
 hunt for its last bricks, lives lost, the longest rally, capsules caught and
-points. `scripts/playtest-summary.py FILE...` compares sessions (baseline
+points, and on a structural level the bricks brought down, the collapses
+and the time to the first fall. `scripts/playtest-summary.py FILE...` compares sessions (baseline
 against `--rally-score`, human against autopilot) and flags the levels that
 drag. [`docs/playtest.md`](docs/playtest.md) is the protocol: who plays, what
 to watch, what to ask, and the listening pass. Nothing is sent anywhere.

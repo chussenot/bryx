@@ -35,7 +35,7 @@ use glyphon::{
 };
 
 use crate::events::PowerUpKind;
-use crate::game::{Game, GameState, LevelSetKind, PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH};
+use crate::game::{Game, GameState, LevelSetKind, PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH, TICK_RATE};
 use crate::movement;
 use crate::palette::{self, Rgb};
 
@@ -245,6 +245,7 @@ impl MenuView {
             LevelSetKind::Campaign => "CAMPAIGN",
             LevelSetKind::Classic => "CLASSIC",
             LevelSetKind::Loaded => "LEVELSET",
+            LevelSetKind::Structures => "STRUCTURES",
         };
         Self {
             rows: vec![MenuRow {
@@ -358,6 +359,7 @@ pub fn layout(frame: &Frame, cue: Option<LifeCue>) -> Layout {
     match game.state {
         GameState::Playing => {
             capsule_letters(&mut out, frame.capsules);
+            structure_readout(&mut out, game);
             if game.ball.attached && !frame.autopilot {
                 serve_prompt(&mut out, game);
             }
@@ -827,7 +829,88 @@ fn serve_prompt(out: &mut Layout, game: &Game) {
         y += 56.0;
     }
     out.lines.push(centered(spans, size::SUMMARY, 0.0, y));
+    // A structural level says what it asks for: its one-line lesson in
+    // the keystone's gold, over the objective every one of them shares.
+    if let Some(hint) = game.level_hint() {
+        out.lines.push(centered(
+            vec![span(hint, palette::BRICK_KEYSTONE, true)],
+            size::VALUE,
+            0.12,
+            y + 26.0,
+        ));
+        if game.keystone_stands() {
+            out.lines.push(centered(
+                vec![span("BRING DOWN THE KEYSTONE", palette::TEXT_DIM, true)],
+                size::CAPTION,
+                CAPTION_TRACKING,
+                y + 54.0,
+            ));
+        }
+        y += 46.0;
+    }
     key_rows(out, y + 30.0, &[(&[&["SPACE"]], "Launch".into())]);
+}
+
+/// How long a collapse's sum stays up after it ends.
+const COLLAPSE_SUM_SECS: f32 = 1.6;
+/// A collapse smaller than this is not announced: one brick falling is
+/// not an event.
+const COLLAPSE_SHOWN_FROM: u32 = 2;
+
+/// A structural level's own readouts, in the field:
+/// - bottom left, the level's tally: bricks broken by a strike, and bricks
+///   brought down (fallen, crushed, given way), the number the level is
+///   about;
+/// - in the middle, under the structure, the collapse under way: how many
+///   bricks it has brought down and what they scored, kept up a moment
+///   after it ends.
+fn structure_readout(out: &mut Layout, game: &Game) {
+    if !game.structure.is_active() {
+        return;
+    }
+    out.lines.push(Line {
+        spans: vec![
+            span("BROKEN ", palette::TEXT_DIM, true),
+            span(game.level_direct.to_string(), palette::TEXT, true),
+            span("   BROUGHT DOWN ", palette::TEXT_DIM, true),
+            span(
+                game.level_collapsed.to_string(),
+                palette::BRICK_KEYSTONE,
+                true,
+            ),
+        ],
+        size: size::CAPTION,
+        tracking: CAPTION_TRACKING,
+        x: MARGIN_X,
+        y: CANVAS_HEIGHT - 18.0,
+        align: Align::Left,
+    });
+
+    let collapse = if game.collapse.bricks > 0 {
+        game.collapse
+    } else {
+        match game.last_collapse {
+            Some((sum, ended))
+                if (game.run_ticks - ended) as f32 <= COLLAPSE_SUM_SECS * TICK_RATE =>
+            {
+                sum
+            }
+            _ => return,
+        }
+    };
+    if collapse.bricks < COLLAPSE_SHOWN_FROM {
+        return;
+    }
+    out.lines.push(centered(
+        vec![
+            span("COLLAPSE ", palette::TEXT_DIM, true),
+            span(collapse.bricks.to_string(), palette::BRICK_KEYSTONE, true),
+            span(format!("  +{}", collapse.score), palette::TEXT, true),
+        ],
+        size::VALUE,
+        0.08,
+        FIELD_CENTER_Y + 96.0,
+    ));
 }
 
 fn state_screen(out: &mut Layout, frame: &Frame, state: GameState) {
@@ -1703,6 +1786,62 @@ mod tests {
         );
         game.ball.attached = false;
         assert!(!all_text(&layout(&frame(&game), None)).contains("Launch"));
+    }
+
+    #[test]
+    fn a_structural_level_names_its_lesson_and_counts_what_came_down() {
+        use crate::game::{Collapse, Features};
+        let mut game = Game::new()
+            .with_structures()
+            .with_features(Features::STRUCTURES);
+        game.state = GameState::Playing;
+        let text = all_text(&layout(&frame(&game), None));
+        for want in [
+            "First fall",
+            "CUT A BEAM",
+            "BRING DOWN THE KEYSTONE",
+            "BROKEN 0",
+            "BROUGHT DOWN 0",
+        ] {
+            assert!(text.contains(want), "{want}: {text}");
+        }
+        assert!(!text.contains("COLLAPSE"), "nothing is falling: {text}");
+
+        // A collapse under way is counted as it goes, then summed up for
+        // a moment after it ends.
+        game.ball.attached = false;
+        game.level_collapsed = 14;
+        game.collapse = Collapse {
+            bricks: 14,
+            score: 3480,
+        };
+        let text = all_text(&layout(&frame(&game), None));
+        assert!(text.contains("COLLAPSE 14  +3480"), "{text}");
+        assert!(text.contains("BROUGHT DOWN 14"), "{text}");
+        assert!(
+            !text.contains("CUT A BEAM"),
+            "the prompt left with the ball"
+        );
+
+        game.last_collapse = Some((game.collapse, 100));
+        game.collapse = Collapse::default();
+        game.run_ticks = 100 + (COLLAPSE_SUM_SECS * TICK_RATE) as u64;
+        assert!(all_text(&layout(&frame(&game), None)).contains("COLLAPSE 14"));
+        game.run_ticks += 2;
+        assert!(!all_text(&layout(&frame(&game), None)).contains("COLLAPSE"));
+
+        // One brick falling is not announced.
+        game.collapse = Collapse {
+            bricks: 1,
+            score: 20,
+        };
+        assert!(!all_text(&layout(&frame(&game), None)).contains("COLLAPSE"));
+
+        // The campaign shows none of it.
+        let mut campaign = Game::new().with_campaign();
+        campaign.state = GameState::Playing;
+        let text = all_text(&layout(&frame(&campaign), None));
+        assert!(!text.contains("BROUGHT DOWN") && !text.contains("KEYSTONE"));
     }
 
     #[test]

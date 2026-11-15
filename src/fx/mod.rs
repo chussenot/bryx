@@ -391,9 +391,12 @@ impl FxSystem {
                         self.sparks(at, normal, count);
                     }
                     match (kind, hits_left) {
-                        (BrickKind::Indestructible, _) => self.deflect(rect, at, normal),
+                        // Steel and the keystone turn every striker back.
+                        (BrickKind::Indestructible | BrickKind::Keystone, _) => {
+                            self.deflect(rect, at, normal);
+                        }
                         (_, 0) => contact = Some(Contact { rect, at, normal }),
-                        (BrickKind::Armored, _) => {
+                        (BrickKind::Armored | BrickKind::Support, _) => {
                             self.crack(rect, at, normal, delays[i].unwrap_or(0.0));
                         }
                         _ => {}
@@ -437,6 +440,18 @@ impl FxSystem {
                     self.meteor([x, y]);
                     blast = Some([x, y]);
                 }
+                // A brick that let go takes its cracks with it: the falling
+                // brick is the effect, drawn by the renderers.
+                GameEvent::BrickFell { rect, .. } => {
+                    self.cracks
+                        .retain(|(c, _)| c.rect[0] != rect[0] || c.rect[1] != rect[1]);
+                }
+                // A falling brick lands: dust thrown back up from the face
+                // it hit, and that is all. A collapse is many of these.
+                GameEvent::DebrisLanded { x, y } => self.sparks([x, y], [0.0, -1.0], 4),
+                // The keystone lets go: the one structural moment that
+                // gets the blast's light.
+                GameEvent::KeystoneFell { x, y } => self.keystone([x, y]),
                 GameEvent::LevelCleared if !won && !has(&GameEvent::Warped) => {
                     // The fanfare's first bar is its run up; the second
                     // opens on the climb to the held high E, six sixteenths
@@ -694,6 +709,25 @@ impl FxSystem {
         };
         self.spawn(0.26, 0.0, BRICK_TOP, ring);
         self.sparks(at, [0.0, -1.0], 6);
+    }
+
+    /// The keystone coming down: a white-gold core and one wide ring.
+    fn keystone(&mut self, at: [f32; 2]) {
+        let core = Kind::Core {
+            center: at,
+            radius: (8.0, 30.0),
+            color: palette::FX_BLAST_CORE,
+            peak: 3.0,
+        };
+        self.spawn(0.2, 0.0, BRICK_TOP, core);
+        let ring = Kind::Ring {
+            center: at,
+            radius: (12.0, 90.0),
+            width: (6.0, 1.0),
+            color: palette::BRICK_KEYSTONE,
+            peak: 2.4,
+        };
+        self.spawn(0.5, 0.0, BRICK_TOP, ring);
     }
 
     /// An asteroid breaking up: dull rock and dust, a little fire inside.

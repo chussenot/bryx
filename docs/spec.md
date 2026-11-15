@@ -145,6 +145,7 @@ Playing`, with Q leading back to `Menu` (below).
 `docs/design/level-select.md`: the menu lists the modes, one per row, and
 Space plays the highlighted one:
 - Campaign: the 32 named levels, every addition on (the default);
+- Structures: four levels to bring down (see "Additions after v1");
 - Classic: v1's three levels under v1's rules;
 - Levelset: one fetched LBreakoutHD set, its name on the row, changed with
   ←/→ (A/D);
@@ -156,7 +157,7 @@ row is shown disabled with how to fetch one, skipped by ↑/↓, and Shuffle
 is not offered. Each built-in mode's row shows its best score. Q on the
 pause, Game Over and Victory screens returns to the menu, which keeps its
 highlight; it ends the run, unscored. The flags preselect: `--classic`
-highlights Classic, `--levelset <file>` that set, `--levelset <dir>`
+highlights Classic, `--structures` Structures, `--levelset <file>` that set, `--levelset <dir>`
 offers that directory's sets instead of `levels/`'s. These are interface
 keys, never simulation input: `Input` and the pinned replay hash are
 unchanged.
@@ -345,6 +346,38 @@ move.
   indestructible ones are untouched; a blast that takes a level's last
   bricks clears it. One that passes the paddle just leaves. A lost life or
   a new level clears them.
+
+- **Structures** (`docs/concept.md`, `docs/design/structural-gameplay.md`):
+  a fifth thing to play, four built-in levels (`levels::STRUCTURES`, the
+  menu's Structures row, `--structures`) that are brought down rather than
+  cleared. They add four brick characters to the level alphabet: `S`
+  support, `=` beam, `|` tie, `K` keystone; `X` is an anchor there. Grids
+  up to 14×14.
+  - A brick is held while a chain of bricks in edge-sharing cells leads
+    from it to an anchor; a beam bonds only left and right, a tie only up
+    and down. Its load is the number of bricks that would stop being held
+    without it.
+  - A brick carries, at most: normal 4; armored 3 per hit left; support 6
+    per hit left; beam and tie 6; keystone and anchor any number.
+  - Overloaded, it cracks 0.8 s and gives way. No longer held, it shakes
+    0.3 s (each row above the lowest 0.05 s more) and falls straight down
+    (1500 px/s², at most 640 px/s). A falling brick shatters on the first
+    standing brick under it, which takes one hit; steel and the keystone
+    take none.
+  - Nothing that strikes the keystone breaks it. When it falls the level
+    is won: the balls hold still, every brick left lets go, and the level
+    ends when nothing stands or falls. A level also ends when no brick
+    but steel is left.
+  - A brick brought down (fallen, crushed, given way) scores twice a
+    broken one, counts in the rally and drops no capsule. The mode always
+    scores by the rally (as `--rally-score` does), has no asteroids, and
+    keeps its own record.
+  - All of it is deterministic: no randomness, fixed-tick timings, the
+    graph surveyed only when a brick leaves. Every structural level holds
+    untouched at its start with nothing over its limit, and has one
+    keystone with no anchor beside it (tested).
+  - The campaign, Classic, Shuffle and loaded levelsets have no structure
+    and play as before; the pinned replay hash has not moved.
 
 One rule applies whatever the features: **stall breaking**. After 10 s of
 flight with no ball touching the paddle, hitting a destructible brick or

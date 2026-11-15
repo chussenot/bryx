@@ -48,11 +48,12 @@ identity.
   ball or fire a laser, Escape or P to pause. On the menu, ↑/↓ choose the
   mode and ←/→ the levelset; Q returns there from the pause and end
   screens.
-- The menu picks what to play: the campaign, Classic (v1 rules and levels),
+- The menu picks what to play: the campaign, Structures (four levels to
+  bring down rather than clear: `docs/concept.md`), Classic (v1 rules and levels),
   one of the community LBreakoutHD levelsets fetched into `levels/`, or a
   Shuffle of ten levels from all of them.
-- Flags change the session: `--renderer 3d`, `--classic` and
-  `--levelset <path>` (preselect the menu's choice), `--assets <dir>` (an
+- Flags change the session: `--renderer 3d`, `--classic`, `--structures`
+  and `--levelset <path>` (preselect the menu's choice), `--assets <dir>` (an
   optional CC0 sprite pack), `--autopilot`.
 - Fully offline. The only network use is the optional autopilot model, and
   only when built with `--features typesafe` and given an API key.
