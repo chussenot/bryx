@@ -469,6 +469,137 @@ impl Structure {
         }
     }
 
+    /// What holds the keystone up: the cheapest set of bricks to break,
+    /// counted in the hits they have left, that leaves it with no chain to
+    /// an anchor. Indices into `bricks`; empty when there is no keystone,
+    /// or an anchor touches it.
+    ///
+    /// It counts chains, not weight: a structure often comes down for
+    /// less, when a cut leaves a hold carrying more than it can
+    /// (`what_falls` sees that). So it is an upper bound on the work a
+    /// level asks for, and what to aim at when no single brick brings
+    /// anything down.
+    ///
+    /// A minimum vertex cut, by augmenting paths on the grid with each
+    /// brick split into an in and an out side joined by its hits: the
+    /// flow is at most the hits of the keystone's four neighbors, so it
+    /// takes eight searches of the grid at most.
+    pub fn keystone_holds(&self, bricks: &[Brick]) -> Vec<usize> {
+        const FREE: u8 = u8::MAX;
+        let mut link = [0u8; CELLS];
+        let mut anchor = [false; CELLS];
+        let mut hits = [0u8; CELLS];
+        let mut index_of = [NONE; CELLS];
+        let mut source = NONE;
+        for (index, brick) in bricks.iter().enumerate() {
+            let Some(i) = self.cell_of(brick) else {
+                continue;
+            };
+            link[i] = sides(brick.kind);
+            anchor[i] = brick.kind == BrickKind::Indestructible;
+            hits[i] = if brick.kind.breakable() {
+                brick.hits_remaining.max(1)
+            } else {
+                FREE
+            };
+            index_of[i] = index;
+            if brick.kind == BrickKind::Keystone {
+                source = i;
+            }
+        }
+        if source == NONE {
+            return Vec::new();
+        }
+
+        // Flow through each brick, and from each brick's out side to each
+        // neighbor's in side. A search state is `2 * cell` for a brick's
+        // in side, `2 * cell + 1` for its out side.
+        let mut through = [0u8; CELLS];
+        let mut across = [[0u8; 4]; CELLS];
+        let bonded = |i: usize, d: usize| {
+            let (side, back, j) = neighbours(i)[d];
+            (j != NONE && link[i] & side != 0 && link[j] & back != 0).then_some(j)
+        };
+        // Eight units of flow at most, and one last search that finds none.
+        for _ in 0..=8 {
+            let mut from = [NONE; 2 * CELLS];
+            let mut queue = [0usize; 2 * CELLS];
+            let (mut head, mut tail) = (0, 0);
+            let mut reached = [false; 2 * CELLS];
+            let start = 2 * source + 1;
+            reached[start] = true;
+            queue[tail] = start;
+            tail += 1;
+            let mut sink = NONE;
+            while head < tail && sink == NONE {
+                let state = queue[head];
+                head += 1;
+                let (i, out) = (state / 2, state % 2 == 1);
+                let mut visit = |next: usize| {
+                    if !reached[next] {
+                        reached[next] = true;
+                        from[next] = state;
+                        queue[tail] = next;
+                        tail += 1;
+                    }
+                };
+                if out {
+                    // On to a neighbor, or back through this brick.
+                    for d in 0..4 {
+                        if let Some(j) = bonded(i, d) {
+                            visit(2 * j);
+                        }
+                    }
+                    if through[i] > 0 {
+                        visit(2 * i);
+                    }
+                } else if anchor[i] {
+                    sink = state;
+                } else {
+                    // Through this brick, or back along a neighbor's flow.
+                    if hits[i] == FREE || through[i] < hits[i] {
+                        visit(2 * i + 1);
+                    }
+                    for d in 0..4 {
+                        if let Some(j) = bonded(i, d) {
+                            if across[j][d ^ 1] > 0 {
+                                visit(2 * j + 1);
+                            }
+                        }
+                    }
+                }
+            }
+            if sink == NONE {
+                // The cut: bricks the search entered and could not leave.
+                return (0..CELLS)
+                    .filter(|&i| reached[2 * i] && !reached[2 * i + 1] && hits[i] != FREE)
+                    .map(|i| index_of[i])
+                    .collect();
+            }
+            // One more unit along the path found.
+            let mut state = sink;
+            while from[state] != NONE {
+                let prev = from[state];
+                let (i, j) = (prev / 2, state / 2);
+                match (prev % 2 == 1, state % 2 == 1) {
+                    (false, true) if i == j => through[i] += 1,
+                    (true, false) if i == j => through[i] -= 1,
+                    (true, false) => {
+                        let d = (0..4).find(|&d| bonded(i, d) == Some(j)).unwrap_or(0);
+                        across[i][d] += 1;
+                    }
+                    _ => {
+                        let d = (0..4).find(|&d| bonded(j, d) == Some(i)).unwrap_or(0);
+                        across[j][d] -= 1;
+                    }
+                }
+                state = prev;
+            }
+        }
+        // An anchor touches the keystone, or something like it: no cut.
+        Vec::new()
+    }
+
     /// A brick's structural state.
     pub fn state(&self, brick: &Brick) -> BrickState {
         let Some(cell) = self
@@ -651,6 +782,54 @@ mod tests {
         let corner = at(&bricks, &structure, 5, 1);
         assert_eq!(structure.what_falls(&bricks, corner), (0, false));
         assert_eq!(bricks.len(), built(grid).0.len(), "a question, not a move");
+    }
+
+    /// The hits it takes to cut every chain from the keystone to an anchor.
+    fn hold(grid: &[&str]) -> u32 {
+        let (bricks, structure) = built(grid);
+        structure
+            .keystone_holds(&bricks)
+            .iter()
+            .map(|&i| u32::from(bricks[i].hits_remaining))
+            .sum()
+    }
+
+    #[test]
+    fn the_keystones_holds_are_the_cheapest_cut_in_hits() {
+        // One chain of normal bricks: one hit, anywhere along it.
+        assert_eq!(hold(&["X11K"]), 1);
+        // Two chains: one hit each.
+        assert_eq!(hold(&["X1K1X"]), 2);
+        // A support costs two hits, so the cut goes through the normal
+        // brick beside it; two supports in a row are still one chain.
+        assert_eq!(hold(&["XS1K"]), 1);
+        assert_eq!(hold(&["XSSK"]), 2);
+        // A wide wall narrows to the keystone's own neighbors.
+        assert_eq!(hold(&["XXXXX", "11111", "11111", "..K.."]), 1);
+        assert_eq!(hold(&["XXXXX", "11111", ".1K1."]), 3);
+        // A beam does not hold what is over it.
+        assert_eq!(hold(&["X=K", "..1", "..X"]), 2);
+        assert_eq!(hold(&["X.K", "..=", "..X"]), 0);
+        // No keystone, or one an anchor touches: nothing to cut.
+        assert_eq!(hold(&["X11"]), 0);
+        assert_eq!(hold(&["XK"]), 0);
+
+        // The cut names real bricks, and breaking them frees the keystone.
+        let grid = crate::levels::STRUCTURES[5].grid;
+        let (mut bricks, mut structure) = built(grid);
+        let mut cut = structure.keystone_holds(&bricks);
+        assert!(!cut.is_empty());
+        cut.sort_unstable();
+        for index in cut.into_iter().rev() {
+            assert!(bricks[index].kind.breakable());
+            bricks.remove(index);
+        }
+        structure.survey(&bricks, |_| {});
+        let keystone = bricks
+            .iter()
+            .find(|b| b.kind == BrickKind::Keystone)
+            .unwrap();
+        assert_eq!(structure.state(keystone).phase, Phase::Unstable);
     }
 
     #[test]

@@ -486,52 +486,87 @@ impl Autopilot {
         (40.0 + fraction * (crate::game::PLAYFIELD_WIDTH - 80.0), y)
     }
 
-    /// On a structural level, finds the brick whose loss brings the most
-    /// down (`Structure::what_falls`): the keystone above all, then the
-    /// most bricks for the fewest hits, among the bricks a ball can get at
-    /// (one with nothing under it, or open to a side). Aims by lane again
-    /// when no single brick brings anything down.
+    /// On a structural level, finds where to aim, among the bricks a ball
+    /// can get at (one with nothing under it, or open to a side):
+    ///
+    /// 1. the brick whose loss brings the keystone down
+    ///    (`Structure::what_falls`), for the fewest hits;
+    /// 2. else the one whose loss brings the most bricks down;
+    /// 3. else, when no single brick brings anything down, one of the
+    ///    bricks that hold the keystone up (`Structure::keystone_holds`),
+    ///    or the reachable brick nearest one: each one broken is a chain
+    ///    fewer, until a brick of the first kind appears.
+    ///
+    /// The lowest on a tie: the easiest to reach. Aims by lane, as on any
+    /// other level, when there is nothing to find.
     fn find_weak_point(&mut self, game: &Game) {
         if !game.structure.is_active() {
             self.weak_point = None;
             return;
         }
-        if self.weak_point_for == game.bricks.len() {
+        // Worked out again when a brick goes or is cracked.
+        let seen = game.bricks.len() * 4
+            + game
+                .bricks
+                .iter()
+                .map(|b| usize::from(b.hits_remaining))
+                .sum::<usize>();
+        if self.weak_point_for == seen {
             return;
         }
-        self.weak_point_for = game.bricks.len();
+        self.weak_point_for = seen;
         let (w, h) = (crate::levels::BRICK_WIDTH, crate::levels::BRICK_HEIGHT);
         let brick_at = |x: f32, y: f32| {
             game.bricks
                 .iter()
                 .any(|b| (b.x - x).abs() < w / 2.0 && (b.y - y).abs() < h / 2.0)
         };
-        let mut best: Option<(u32, f32, (f32, f32))> = None;
-        for (index, brick) in game.bricks.iter().enumerate() {
-            if !brick.kind.breakable() {
-                continue;
-            }
+        // Under it if a ball can come up at it, its middle otherwise.
+        let reachable = |brick: &crate::game::Brick| {
             let open_below = !brick_at(brick.x, brick.y + h);
             let open_beside = !brick_at(brick.x - w, brick.y) || !brick_at(brick.x + w, brick.y);
-            if !open_below && !open_beside {
-                continue;
+            match (brick.kind.breakable(), open_below, open_beside) {
+                (true, true, _) => Some((brick.x, brick.y + brick.height / 2.0)),
+                (true, false, true) => Some((brick.x, brick.y)),
+                _ => None,
             }
+        };
+
+        let mut best: Option<(u32, f32, (f32, f32))> = None;
+        for (index, brick) in game.bricks.iter().enumerate() {
+            let Some(target) = reachable(brick) else {
+                continue;
+            };
             let (falls, keystone) = game.structure.what_falls(&game.bricks, index);
             if falls == 0 {
                 continue;
             }
             let hits = u32::from(brick.hits_remaining.max(1));
             let worth = (u32::from(falls) + if keystone { 1000 } else { 0 }) / hits;
-            // Under it if a ball can come up at it, its middle otherwise.
-            let target = if open_below {
-                (brick.x, brick.y + brick.height / 2.0)
-            } else {
-                (brick.x, brick.y)
-            };
-            // The most worth, then the lowest: the easiest to reach.
             if best.is_none_or(|(w, y, _)| (worth, brick.y) > (w, y)) {
                 best = Some((worth, brick.y, target));
             }
+        }
+        if best.is_none() {
+            // Nothing falls to one brick: go for what holds the keystone.
+            let holds = game.structure.keystone_holds(&game.bricks);
+            let mut nearest: Option<(f32, f32, (f32, f32))> = None;
+            for brick in &game.bricks {
+                let Some(target) = reachable(brick) else {
+                    continue;
+                };
+                let gap = holds
+                    .iter()
+                    .map(|&i| (game.bricks[i].x - brick.x).hypot(game.bricks[i].y - brick.y))
+                    .fold(f32::INFINITY, f32::min);
+                if nearest.is_none_or(|(g, y, _)| (gap, -brick.y) < (g, -y)) {
+                    nearest = Some((gap, brick.y, target));
+                }
+            }
+            self.weak_point = nearest
+                .filter(|(gap, _, _)| gap.is_finite())
+                .map(|(_, _, target)| target);
+            return;
         }
         self.weak_point = best.map(|(_, _, target)| target);
     }
@@ -744,8 +779,9 @@ mod tests {
     }
 
     /// The structures are brought down, not cleared: the heuristic finds
-    /// each one's weak point (`find_weak_point`) and wins all four with
-    /// most of the bricks fallen, not broken.
+    /// each one's weak point (`find_weak_point`) and wins all eight with
+    /// more bricks fallen than broken. It prints each level's time: the
+    /// pacing table in docs/design/structural-gameplay.md.
     #[test]
     fn the_heuristic_brings_down_every_structure() {
         for seed in [1, 7, 42] {
@@ -756,6 +792,7 @@ mod tests {
             let (mut direct, mut collapsed) = (0, 0);
             let mut level = game.level;
             let mut tally = (0, 0);
+            let mut started = 0.0;
             for _ in 0..120 * 600 {
                 let input = autopilot.input(&game, DT);
                 game.tick(&input, DT);
@@ -764,6 +801,14 @@ mod tests {
                 if game.level != level || game.state == GameState::Victory {
                     direct += tally.0;
                     collapsed += tally.1;
+                    println!(
+                        "  seed {seed} level {level}: {:.0} s, {} broken, {} brought down, {} lives",
+                        game.run_secs() - started,
+                        tally.0,
+                        tally.1,
+                        game.lives
+                    );
+                    started = game.run_secs();
                     level = game.level;
                 }
                 tally = (game.level_direct, game.level_collapsed);

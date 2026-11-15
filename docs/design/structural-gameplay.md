@@ -4,7 +4,7 @@ How structural destruction works in BRYX: the model, the rules, what the
 simulation emits and what the player sees and hears. The idea behind it is
 in [`../concept.md`](../concept.md).
 
-Status: a playable slice. Four levels (`levels::STRUCTURES`), their own
+Status: playable. Eight levels (`levels::STRUCTURES`), their own
 menu row (Structures) and flag (`--structures`), both renderers, the
 sound director, the HUD, the autopilot and the playtest log. The campaign
 is not converted yet (see "Next").
@@ -119,7 +119,7 @@ nothing or over its limit.
 | Simultaneous impacts | Bricks broken in one tick are surveyed together on the next. |
 | A life lost during a collapse | The collapse goes on while the next ball waits on the paddle. |
 | The level ends during a cascade | It ends when the last debris has landed or left, not before. |
-| Break gate | Unchanged: the level is left, the standing bricks scored at ×1. |
+| Break gate | Off in this mode (the capsule never drops): a structure is a problem to solve, and a way around it is not a solution. |
 | Asteroids | Off in this mode: the field's moving parts are the bricks coming down. |
 | Stall rule | Unchanged. A keystone hit is not progress, so a ball caught between steel and a keystone is still turned out. |
 
@@ -204,17 +204,68 @@ Effects are restrained: a fall has none (the brick is the effect), a
 landing throws four sparks, and only the keystone gets the blast's core
 and ring.
 
-## 9. The four levels
+## 9. The eight levels
 
-| Level | Teaches | The cut |
-|---|---|---|
-| First fall | Two holds share; one cannot carry | Any beam. An unaimed first serve lands on one (tested). |
-| Table | Supports, and a choice | A leg (two hits), or the tie that holds the keystone (one precise shot). |
-| Bridge | Falling bricks break what they land on | Drop the slab; it breaks the deck that holds the keystone. The deck from below takes two hits a brick, on both sides. |
-| Vault | Redundancy | The cage hangs four ways and stays up on any two. The way in is over the walls. |
+The first two are lessons: one cut and the structure comes down. From the
+third on, no single brick brings the keystone down, so a level is a
+sequence of cuts, and which comes first matters.
+
+| # | Level | Teaches | What it asks |
+|---|---|---|---|
+| 1 | First fall | Two holds share; one cannot carry | Any beam. An unaimed first serve lands on one (tested). |
+| 2 | Table | Supports take two hits | A leg; the other gives way under the top. |
+| 3 | Tower | The lower the cut, the more hangs | Cut the column, then a brace. Cut low, one brace is enough; cut high, both have to go. |
+| 4 | Arch | A cracked support carries half | One pier gone, the other holds the lintel alone. One hit on it and it does not. |
+| 5 | Bridge | Falling bricks break what they land on | The deck stands on steel; only the slab, dropped whole, breaks the two bricks that hold the keystone. It stays up on two of its three ties. |
+| 6 | Vault | Weight is a tool | The cage hangs four ways and any one hold carries it, unless the cut rows still hang on it. |
+| 7 | Gantry | Getting in | Three hangers in a gap between a steel beam and the box; it stays up on two, and the middle one is behind the others. |
+| 8 | Citadel | All of it | A roof to drop on the braces, braces to cut at the walls, a pedestal that carries the cage and no more. |
 
 Each is checked by `game.rs`: all of it holds at the start, nothing starts
 over its limit, one keystone, no anchor beside it.
+
+### How hard, measured
+
+Two numbers a test computes for every level
+(`the_structures_get_harder_and_past_the_second_none_falls_to_one_brick`),
+and one from the autopilot:
+
+- **Hold:** the hits it takes to cut every chain from the keystone to an
+  anchor (`Structure::keystone_holds`, a minimum cut). An upper bound on
+  the work: a structure often comes down for less, when a cut leaves a
+  hold carrying more than it can.
+- **One brick wins:** whether breaking a single brick, however many hits
+  it takes, ends the level. Found by playing every brick out.
+- **Autopilot:** seconds of play it needs, aiming exactly, over three
+  seeds. A pacing probe, not a measure of how hard a person finds it.
+
+| # | Level | Hold | One brick wins | Autopilot |
+|---|---|---|---|---|
+| 1 | First fall | 2 | yes | 8 s |
+| 2 | Table | 2 | yes | 7 s |
+| 3 | Tower | 4 | no | 15 s |
+| 4 | Arch | 4 | no | 16 s |
+| 5 | Bridge | 4 | no | 36 to 54 s |
+| 6 | Vault | 6 | no | 45 to 48 s |
+| 7 | Gantry | 6 | no | 13 to 100 s |
+| 8 | Citadel | 6 | no | 40 to 45 s |
+
+The whole set takes the autopilot 3 to 5 minutes. The Gantry's spread is
+the level: its hangers are reached by a shot into a gap, which a seed
+finds early or late. The first four
+levels, as first built, took it 30 to 80 seconds, and all four fell to
+one brick.
+
+What made them harder, in order of effect:
+
+1. **More holds than one cut removes.** Three ties, three hangers, four
+   holds on a cage: a structure that stands on any two.
+2. **Holds strong enough to carry it alone.** A support carries twelve.
+   Where the last hold can carry the structure, the player has to crack
+   it, or leave more weight hanging on it.
+3. **Steel in the way.** A deck no ball reaches from below; hangers in a
+   gap entered from the sides; a chamber entered over its walls.
+4. **No way around.** The Break gate is off in this mode.
 
 ## 10. Decisions, and what I did not do
 
@@ -238,11 +289,16 @@ over its limit, one keystone, no anchor beside it.
 
 ## 11. Known limits
 
-- **The levels are short.** The autopilot, aiming exactly, brings all
-  four down in 30 to 80 s, depending on the seed. Each is one lesson and one collapse. Levels
-  that need a sequence of cuts are the next thing to build.
-- **Not played by a person yet.** Whether a new player finds the weak
-  point unprompted is the question the playtest has to answer.
+- **Difficulty is measured, not felt.** The numbers above say the levels
+  ask for more; only the first four have been played by a person. Whether
+  the later ones are hard or merely slow is for the playtest.
+- **The autopilot never loses a life here.** It aims exactly and returns
+  every ball, so its times say nothing about the pressure a person is
+  under.
+- **Capsules can shortcut a level.** A Super laser, a Metal ball or a
+  Meteor rain cuts holds faster than any shot. They drop only from bricks
+  the ball breaks, so they are rare here; they are not tuned for this
+  mode.
 - **The autopilot's forecast ignores collapse.** It predicts the ball
   against the bricks as they stand; after a section falls the forecast is
   recomputed, so it is late by one bounce, never wrong for long.
@@ -255,12 +311,13 @@ over its limit, one keystone, no anchor beside it.
 
 ## 12. Next
 
-1. **Human playtest** of the four levels (`docs/playtest.md`): time to
+1. **Human playtest** of the eight levels (`docs/playtest.md`): time to
    the first fall, bricks brought down against broken, whether supports
-   are aimed at.
-2. **Levels with a sequence:** two or three cuts in an order that
-   matters, sections that fall onto each other, a keystone that needs a
-   cascade to reach.
+   are aimed at, and where players stall.
+2. **Pressure, if the playtest asks for it:** falling bricks that the
+   paddle has to stay clear of. Not built: it changes what a collapse
+   costs the player, and should follow evidence that the levels are
+   still too easy once they need a plan.
 3. **Act I rebuilt on structures**, eight levels, teaching one idea each;
    then the other acts (moving anchors for Machines, armored supports for
    the Vault).

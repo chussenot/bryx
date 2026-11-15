@@ -145,7 +145,7 @@ Playing`, with Q leading back to `Menu` (below).
 `docs/design/level-select.md`: the menu lists the modes, one per row, and
 Space plays the highlighted one:
 - Campaign: the 32 named levels, every addition on (the default);
-- Structures: four levels to bring down (see "Additions after v1");
+- Structures: eight levels to bring down (see "Additions after v1");
 - Classic: v1's three levels under v1's rules;
 - Levelset: one fetched LBreakoutHD set, its name on the row, changed with
   ←/→ (A/D);
@@ -348,7 +348,7 @@ move.
   a new level clears them.
 
 - **Structures** (`docs/concept.md`, `docs/design/structural-gameplay.md`):
-  a fifth thing to play, four built-in levels (`levels::STRUCTURES`, the
+  a fifth thing to play, eight built-in levels (`levels::STRUCTURES`, the
   menu's Structures row, `--structures`) that are brought down rather than
   cleared. They add four brick characters to the level alphabet: `S`
   support, `=` beam, `|` tie, `K` keystone; `X` is an anchor there. Grids
@@ -370,8 +370,10 @@ move.
     but steel is left.
   - A brick brought down (fallen, crushed, given way) scores twice a
     broken one, counts in the rally and drops no capsule. The mode always
-    scores by the rally (as `--rally-score` does), has no asteroids, and
-    keeps its own record.
+    scores by the rally (as `--rally-score` does), has no asteroids and
+    no Break capsule, and keeps its own record.
+  - From the third level on, breaking any one brick never ends the level
+    (tested by playing each brick out).
   - All of it is deterministic: no randomness, fixed-tick timings, the
     graph surveyed only when a brick leaves. Every structural level holds
     untouched at its start with nothing over its limit, and has one
