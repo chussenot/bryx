@@ -27,8 +27,8 @@ pub struct Rally {
 
 impl Rally {
     /// One tick: its state change, then its events in order, then the
-    /// serve. `on_break` gets each `BrickDestroyedAt`'s index in `events`
-    /// and its step (0 is the root, capped at `STEPS - 1`).
+    /// serve. `on_break` gets each `BrickDestroyedAt`'s and `BrickFell`'s
+    /// index in `events` and its step (0 is the root, capped at `STEPS - 1`).
     ///
     /// A run starts over when play starts or ends (into Playing from the
     /// menu or an end screen, or back to the menu), on a paddle hit, a
@@ -60,7 +60,9 @@ impl Rally {
         let warped = has(&GameEvent::Warped);
         for (i, event) in events.iter().enumerate() {
             match event {
-                GameEvent::BrickDestroyedAt { .. } => {
+                // A brick broken where it stood, or one that let go of its
+                // structure and fell: either is one more of the run.
+                GameEvent::BrickDestroyedAt { .. } | GameEvent::BrickFell { .. } => {
                     on_break(i, self.step.min(STEPS - 1));
                     self.step += 1;
                 }

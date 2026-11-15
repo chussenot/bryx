@@ -19,8 +19,9 @@
 //! pattern (`assets.rs`). See PRODUCT.md, "Accessibility & Inclusion".
 
 use crate::events::PowerUpKind;
-use crate::game::{BallMode, Game, POWER_WARNING_SECS};
+use crate::game::{BallMode, Brick, Game, POWER_WARNING_SECS, TICK_RATE};
 use crate::levels::BrickKind;
+use crate::structure::{Phase, RULES};
 
 /// An sRGB color as authored: 8 bits per channel, no alpha.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,6 +186,16 @@ pub const BRICK_ARMORED_HIT: Rgb = hex(0xDE9A2C);
 /// Indestructible: graphite with diagonal hatching.
 pub const BRICK_INDESTRUCTIBLE: Rgb = hex(0x4A5160);
 
+/// Support, intact: violet, fluted like a column.
+pub const BRICK_SUPPORT: Rgb = hex(0x8F6BE0);
+/// Support after its first hit: paler and pinker, the flutes cracked. It
+/// now carries half as much.
+pub const BRICK_SUPPORT_HIT: Rgb = hex(0xC77DD9);
+/// Beam and tie: pale steel, thin.
+pub const BRICK_BEAM: Rgb = hex(0xAEB9C9);
+/// Keystone: gold, with a diamond.
+pub const BRICK_KEYSTONE: Rgb = hex(0xF5C542);
+
 /// A brick's color for its kind and remaining hits.
 pub fn brick(kind: BrickKind, hits_remaining: u8) -> Rgb {
     match kind {
@@ -192,6 +203,88 @@ pub fn brick(kind: BrickKind, hits_remaining: u8) -> Rgb {
         BrickKind::Armored if hits_remaining >= 2 => BRICK_ARMORED,
         BrickKind::Armored => BRICK_ARMORED_HIT,
         BrickKind::Indestructible => BRICK_INDESTRUCTIBLE,
+        BrickKind::Support if hits_remaining >= 2 => BRICK_SUPPORT,
+        BrickKind::Support => BRICK_SUPPORT_HIT,
+        BrickKind::Beam | BrickKind::Tie => BRICK_BEAM,
+        BrickKind::Keystone => BRICK_KEYSTONE,
+    }
+}
+
+// -- structure: what a brick's state looks like ------------------------------
+
+/// A brick carrying more than it can, cracking: hot orange, the warning
+/// before it gives way.
+pub const STRUCT_OVERLOAD: Rgb = hex(0xFF7A1A);
+/// A brick nothing holds any more, about to fall: white-hot.
+pub const STRUCT_UNSTABLE: Rgb = hex(0xFFF1D6);
+/// The mark on a brick that carries others: the weak point.
+pub const STRUCT_BEARING: Rgb = hex(0xFFD9A0);
+
+/// How a brick's structural state shows: one reading of the simulation,
+/// drawn by both renderers, so they say the same thing.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct StructureLook {
+    /// Where the brick is drawn from its place: an unstable brick shakes.
+    pub offset: [f32; 2],
+    /// A color laid over the brick and how much of it, 0 to 1: hot orange
+    /// on an overloaded brick, stronger and beating faster as it nears
+    /// giving way; white-hot on one about to fall.
+    pub glow: Option<(Rgb, f32)>,
+    /// The load mark: a bar along the brick's lower edge, as long as the
+    /// share of its limit it carries (0: it carries nothing, no bar; 1: at
+    /// its limit or past it).
+    pub bearing: f32,
+}
+
+/// An unstable brick's shake, in px, and how fast.
+const UNSTABLE_SHAKE_PX: f32 = 1.5;
+const UNSTABLE_SHAKE_HZ: f32 = 11.0;
+
+/// The look of `brick`'s structural state now. With reduced motion nothing
+/// shakes or beats: the glow alone says it, steady.
+pub fn structure_look(game: &Game, brick: &Brick, reduced_motion: bool) -> StructureLook {
+    let state = game.structure.state(brick);
+    let bearing = if state.load == 0 {
+        0.0
+    } else {
+        (f32::from(state.load) / f32::from(state.capacity.max(1))).clamp(0.25, 1.0)
+    };
+    match state.phase {
+        Phase::Intact | Phase::Stressed => StructureLook {
+            bearing,
+            ..StructureLook::default()
+        },
+        Phase::Overloaded => {
+            // Seconds it has been cracking; its beat goes from 3 to 9 Hz
+            // over the time it has.
+            let t = state.progress * RULES.give_way_secs;
+            let beat = if reduced_motion {
+                1.0
+            } else {
+                let turns = 3.0 * t + 3.75 * t * t;
+                0.55 + 0.45 * (0.5 + 0.5 * (std::f32::consts::TAU * turns).cos())
+            };
+            StructureLook {
+                glow: Some((STRUCT_OVERLOAD, (0.3 + 0.45 * state.progress) * beat)),
+                bearing: 1.0,
+                ..StructureLook::default()
+            }
+        }
+        Phase::Unstable => {
+            let secs = game.run_ticks as f32 / TICK_RATE;
+            // Each brick out of step with its neighbors.
+            let phase = brick.x * 0.37 + brick.y * 0.61;
+            let dx = if reduced_motion {
+                0.0
+            } else {
+                (std::f32::consts::TAU * UNSTABLE_SHAKE_HZ * secs + phase).sin() * UNSTABLE_SHAKE_PX
+            };
+            StructureLook {
+                offset: [dx, 0.0],
+                glow: Some((STRUCT_UNSTABLE, 0.4 + 0.25 * state.progress)),
+                bearing: 0.0,
+            }
+        }
     }
 }
 

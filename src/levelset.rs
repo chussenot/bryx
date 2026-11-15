@@ -919,6 +919,7 @@ mod tests {
                     BrickKind::Normal => 1,
                     BrickKind::Armored => 2,
                     BrickKind::Indestructible => 0,
+                    _ => unreachable!("a levelset has no structural brick"),
                 },
                 score: 10,
             })
@@ -999,6 +1000,7 @@ mod tests {
                     BrickKind::Normal => 1,
                     BrickKind::Armored => 2,
                     BrickKind::Indestructible => 0,
+                    _ => unreachable!("a levelset has no structural brick"),
                 },
                 score: 10,
             })

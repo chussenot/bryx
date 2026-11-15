@@ -209,6 +209,11 @@ pub struct Autopilot {
     /// only when something the forecast left out happens: the paddle, a
     /// new asteroid, another ball breaking a brick first.
     forecasts: Vec<Option<Tracked>>,
+    /// On a structural level, the weak point: where to aim, and the number
+    /// of bricks it was worked out for (it is worked out again when one
+    /// goes). `None` aims by lane, as on any other level.
+    weak_point: Option<(f32, f32)>,
+    weak_point_for: usize,
 }
 
 /// A forecast and how many ticks of it have played out.
@@ -239,6 +244,8 @@ impl Autopilot {
             stats: Stats::default(),
             space_held: false,
             forecasts: Vec::new(),
+            weak_point: None,
+            weak_point_for: usize::MAX,
         }
     }
 
@@ -297,6 +304,7 @@ impl Autopilot {
     fn pilot(&mut self, game: &Game, dt: f32, input: &mut Input) {
         let paddle = &game.paddle;
         let board = Board::from_game(game);
+        self.find_weak_point(game);
 
         if game.ball.attached {
             let waited = match self.serve {
@@ -462,7 +470,9 @@ impl Autopilot {
     /// bank shot no lane target describes, and an aim this precise would
     /// otherwise replay the same few trajectories forever.
     fn aim_point(&self, board: &Board) -> (f32, f32) {
-        let (x, y) = board.lanes[self.plan.lane].target;
+        let (x, y) = self
+            .weak_point
+            .unwrap_or(board.lanes[self.plan.lane].target);
         if self.fruitless < 2 {
             return (x, y);
         }
@@ -474,6 +484,56 @@ impl Autopilot {
         // width and never fall back into a short cycle.
         let fraction = (self.fruitless as f32 * 0.618_034).fract();
         (40.0 + fraction * (crate::game::PLAYFIELD_WIDTH - 80.0), y)
+    }
+
+    /// On a structural level, finds the brick whose loss brings the most
+    /// down (`Structure::what_falls`): the keystone above all, then the
+    /// most bricks for the fewest hits, among the bricks a ball can get at
+    /// (one with nothing under it, or open to a side). Aims by lane again
+    /// when no single brick brings anything down.
+    fn find_weak_point(&mut self, game: &Game) {
+        if !game.structure.is_active() {
+            self.weak_point = None;
+            return;
+        }
+        if self.weak_point_for == game.bricks.len() {
+            return;
+        }
+        self.weak_point_for = game.bricks.len();
+        let (w, h) = (crate::levels::BRICK_WIDTH, crate::levels::BRICK_HEIGHT);
+        let brick_at = |x: f32, y: f32| {
+            game.bricks
+                .iter()
+                .any(|b| (b.x - x).abs() < w / 2.0 && (b.y - y).abs() < h / 2.0)
+        };
+        let mut best: Option<(u32, f32, (f32, f32))> = None;
+        for (index, brick) in game.bricks.iter().enumerate() {
+            if !brick.kind.breakable() {
+                continue;
+            }
+            let open_below = !brick_at(brick.x, brick.y + h);
+            let open_beside = !brick_at(brick.x - w, brick.y) || !brick_at(brick.x + w, brick.y);
+            if !open_below && !open_beside {
+                continue;
+            }
+            let (falls, keystone) = game.structure.what_falls(&game.bricks, index);
+            if falls == 0 {
+                continue;
+            }
+            let hits = u32::from(brick.hits_remaining.max(1));
+            let worth = (u32::from(falls) + if keystone { 1000 } else { 0 }) / hits;
+            // Under it if a ball can come up at it, its middle otherwise.
+            let target = if open_below {
+                (brick.x, brick.y + brick.height / 2.0)
+            } else {
+                (brick.x, brick.y)
+            };
+            // The most worth, then the lowest: the easiest to reach.
+            if best.is_none_or(|(w, y, _)| (worth, brick.y) > (w, y)) {
+                best = Some((worth, brick.y, target));
+            }
+        }
+        self.weak_point = best.map(|(_, _, target)| target);
     }
 
     /// After a paddle hit: keep, replace or re-ask for the lane.
@@ -679,6 +739,54 @@ mod tests {
                 game.bricks.len(),
                 game.lives,
                 autopilot.stats()
+            );
+        }
+    }
+
+    /// The structures are brought down, not cleared: the heuristic finds
+    /// each one's weak point (`find_weak_point`) and wins all four with
+    /// most of the bricks fallen, not broken.
+    #[test]
+    fn the_heuristic_brings_down_every_structure() {
+        for seed in [1, 7, 42] {
+            let mut game = Game::with_seed(seed)
+                .with_structures()
+                .with_features(crate::game::Features::STRUCTURES);
+            let mut autopilot = Autopilot::new(None, 1);
+            let (mut direct, mut collapsed) = (0, 0);
+            let mut level = game.level;
+            let mut tally = (0, 0);
+            for _ in 0..120 * 600 {
+                let input = autopilot.input(&game, DT);
+                game.tick(&input, DT);
+                autopilot.observe(&game);
+                game.events.clear();
+                if game.level != level || game.state == GameState::Victory {
+                    direct += tally.0;
+                    collapsed += tally.1;
+                    level = game.level;
+                }
+                tally = (game.level_direct, game.level_collapsed);
+                if matches!(game.state, GameState::Victory | GameState::GameOver) {
+                    break;
+                }
+            }
+            assert!(
+                won(&game),
+                "seed {seed}: {:?} at level {}, {} bricks left, {} lives",
+                game.state,
+                game.level,
+                game.bricks.len(),
+                game.lives,
+            );
+            assert!(
+                collapsed > direct,
+                "seed {seed}: {direct} broken, {collapsed} brought down"
+            );
+            println!(
+                "seed {seed}: {direct} broken, {collapsed} brought down, {:.0} s, score {}",
+                game.run_secs(),
+                game.score
             );
         }
     }

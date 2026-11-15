@@ -19,6 +19,7 @@ mod rally;
 mod record;
 mod render;
 mod render3d;
+mod structure;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -750,6 +751,7 @@ fn main() {
     match wanted {
         Some(name) => picker.select_set(&name),
         None if args.classic => picker.select(menu::Mode::Classic),
+        None if args.structures => picker.select(menu::Mode::Structures),
         None => {}
     }
 

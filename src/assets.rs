@@ -93,7 +93,12 @@ fn pack_filename(id: SpriteId) -> Option<&'static str> {
         SpriteId::BrickArmoredIntact => Some("brick_armored_intact.png"),
         SpriteId::BrickArmoredHit => Some("brick_armored_hit.png"),
         SpriteId::BrickIndestructible => Some("brick_indestructible.png"),
-        SpriteId::Capsule | SpriteId::Asteroid => None,
+        SpriteId::Capsule
+        | SpriteId::Asteroid
+        | SpriteId::BrickSupport
+        | SpriteId::BrickSupportHit
+        | SpriteId::BrickBeam
+        | SpriteId::BrickKeystone => None,
     }
 }
 
@@ -115,6 +120,13 @@ pub enum SpriteId {
     Capsule,
     /// An asteroid's cratered, irregular rock, tinted like the capsule.
     Asteroid,
+    /// The structural bricks (`levels::STRUCTURES`), always drawn by this
+    /// module's recipes: a support intact and hit, the beam (a tie is the
+    /// same sprite, stood up), the keystone.
+    BrickSupport,
+    BrickSupportHit,
+    BrickBeam,
+    BrickKeystone,
 }
 
 impl SpriteId {
@@ -122,7 +134,7 @@ impl SpriteId {
     /// ([`Atlas::cell_rect`] indexes into this by position). Add new
     /// sprites at the end so existing UV rects don't shift under
     /// whoever's already reading them.
-    pub const ALL: [SpriteId; 8] = [
+    pub const ALL: [SpriteId; 12] = [
         SpriteId::Paddle,
         SpriteId::Ball,
         SpriteId::BrickNormal,
@@ -131,6 +143,10 @@ impl SpriteId {
         SpriteId::BrickIndestructible,
         SpriteId::Capsule,
         SpriteId::Asteroid,
+        SpriteId::BrickSupport,
+        SpriteId::BrickSupportHit,
+        SpriteId::BrickBeam,
+        SpriteId::BrickKeystone,
     ];
 
     /// The brick sprites, each with the pattern [`brick_mark`] draws.
@@ -164,8 +180,8 @@ pub struct UvRect {
 /// cell without a layout change here.
 pub const CELL_SIZE: u32 = 64;
 
-/// Sprites per atlas row. `SpriteId::ALL` (8) leaves the last of three
-/// rows one cell short; `Atlas::grid_size` packs a partial row fine.
+/// Sprites per atlas row: `SpriteId::ALL` (12) fills four rows;
+/// `Atlas::grid_size` packs a partial row fine.
 const GRID_COLS: u32 = 3;
 
 /// An RGBA8 pixel buffer plus a fixed grid of sprite regions. This is the
@@ -424,6 +440,10 @@ fn procedural_sprite(id: SpriteId) -> Vec<u8> {
         }
         SpriteId::Capsule => capsule_pill(),
         SpriteId::Asteroid => cratered_rock(),
+        SpriteId::BrickSupport => beveled_brick_panel(id, palette::BRICK_SUPPORT.srgb()),
+        SpriteId::BrickSupportHit => beveled_brick_panel(id, palette::BRICK_SUPPORT_HIT.srgb()),
+        SpriteId::BrickBeam => beveled_brick_panel(id, palette::BRICK_BEAM.srgb()),
+        SpriteId::BrickKeystone => beveled_brick_panel(id, palette::BRICK_KEYSTONE.srgb()),
     }
 }
 
@@ -491,6 +511,11 @@ const CRACK: [(f32, f32); 5] = [
     (33.0, 19.5),
 ];
 const CRACK_HALF_WIDTH: f32 = 0.9;
+/// A support's flutes: their x, in brick pixels, and half their width.
+const FLUTES: [f32; 3] = [13.0, 26.0, 39.0];
+const FLUTE_HALF_WIDTH: f32 = 1.3;
+/// The keystone diamond's half extents, in brick pixels.
+const KEYSTONE_DIAMOND: (f32, f32) = (13.0, 8.0);
 
 /// The mark at brick-pixel `(bx, by)` for brick sprite `id`:
 /// - normal: none, a plain panel;
@@ -531,6 +556,30 @@ fn brick_mark(id: SpriteId, bx: f32, by: f32) -> Option<Mark> {
             let inside = bx > 2.0 && bx < w - 2.0 && by > 2.0 && by < h - 2.0;
             (inside && (bx + by).rem_euclid(HATCH_PERIOD) < HATCH_WIDTH)
                 .then_some(Mark::Lighten(0.22))
+        }
+        // A support: three flutes down a column, cracked once it is hit.
+        SpriteId::BrickSupport | SpriteId::BrickSupportHit => {
+            let inside = by > 2.5 && by < h - 2.5;
+            let flute = FLUTES.iter().any(|&fx| (bx - fx).abs() <= FLUTE_HALF_WIDTH);
+            if id == SpriteId::BrickSupportHit
+                && CRACK
+                    .windows(2)
+                    .any(|seg| distance_to_segment((bx, by), seg[0], seg[1]) <= CRACK_HALF_WIDTH)
+            {
+                Some(Mark::Darken(0.62))
+            } else {
+                (inside && flute).then_some(Mark::Darken(0.3))
+            }
+        }
+        // The keystone: a diamond.
+        SpriteId::BrickKeystone => {
+            let d = (bx - w / 2.0).abs() / KEYSTONE_DIAMOND.0
+                + (by - h / 2.0).abs() / KEYSTONE_DIAMOND.1;
+            if d <= 0.55 {
+                Some(Mark::Darken(0.35))
+            } else {
+                (d <= 1.0).then_some(Mark::Lighten(0.6))
+            }
         }
         _ => None,
     }
@@ -1042,7 +1091,7 @@ mod tests {
             SpriteId::BrickArmoredIntact => [100, 110, 120, 255],
             SpriteId::BrickArmoredHit => [130, 140, 150, 255],
             SpriteId::BrickIndestructible => [160, 170, 180, 255],
-            SpriteId::Capsule | SpriteId::Asteroid => unreachable!("never in a pack"),
+            _ => unreachable!("never in a pack"),
         }
     }
 

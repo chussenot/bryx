@@ -73,6 +73,38 @@ pub enum GameEvent {
     /// tick: `BrickDestroyedAt` if it broke, `BrickStruck` (by a blast) if
     /// it is indestructible.
     MeteorStruck { x: f32, y: f32 },
+    /// A brick started carrying more than it can (structural levels): it
+    /// cracks from now until it gives way. `rect` is its center and size.
+    BrickOverloaded {
+        rect: [f32; 4],
+        load: u16,
+        capacity: u16,
+    },
+    /// An overloaded brick broke under what it carried. Its
+    /// `BrickDestroyedAt` follows in the same tick.
+    BrickGaveWay { rect: [f32; 4] },
+    /// A brick that carried `dependents` others is gone, however it went.
+    SupportLost { x: f32, y: f32, dependents: u16 },
+    /// `count` bricks lost every hold and are about to fall, centered on
+    /// (`x`, `y`).
+    SectionUnstable { count: u16, x: f32, y: f32 },
+    /// A brick let go and is falling: the `nth` brought down in this
+    /// collapse (1 for the first). It is scored now and no longer a brick;
+    /// no `BrickDestroyedAt` follows.
+    BrickFell {
+        rect: [f32; 4],
+        kind: crate::levels::BrickKind,
+        nth: u32,
+    },
+    /// A falling brick landed on a standing one, at the middle of the top
+    /// face it hit, and shattered there.
+    DebrisLanded { x: f32, y: f32 },
+    /// The keystone came down: the level is won, and what is left of it
+    /// lets go.
+    KeystoneFell { x: f32, y: f32 },
+    /// A collapse is over (nothing cracking, shaking or falling any more):
+    /// how many bricks it brought down and what they scored.
+    CollapseEnded { bricks: u32, score: u32 },
     /// A ball fell below the bottom edge. Fires once per ball, including
     /// during multiball — see `LifeLost` for the life-loss rule.
     BallLost,
@@ -139,4 +171,6 @@ pub enum Striker {
     /// without breaking: the contact is the brick's point nearest the
     /// blast. (Bricks a blast breaks are `BrickDestroyedAt` only.)
     Blast,
+    /// A falling brick landing on it (structural levels).
+    Debris,
 }

@@ -28,6 +28,8 @@ use crate::levelset::{AuthoredDrop, ExternalLevel};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Progression {
     Campaign,
+    /// The structural levels.
+    Structures,
     Classic,
     Shuffle,
     /// A loaded levelset, by [`set_hash`].
@@ -51,6 +53,7 @@ impl RecordKey {
     fn file_name(&self) -> String {
         let mut name = match self.progression {
             Progression::Campaign => "best-campaign".to_owned(),
+            Progression::Structures => "best-structures".to_owned(),
             Progression::Classic => "best-classic".to_owned(),
             Progression::Shuffle => "best-shuffle".to_owned(),
             Progression::Set(hash) => format!("best-set-{hash:016x}"),
@@ -121,6 +124,10 @@ pub fn set_hash(levels: &[ExternalLevel]) -> u64 {
                 BrickKind::Normal => 1,
                 BrickKind::Armored => 2,
                 BrickKind::Indestructible => 3,
+                BrickKind::Support => 4,
+                BrickKind::Beam => 5,
+                BrickKind::Tie => 6,
+                BrickKind::Keystone => 7,
             }]);
             feed(&match brick.powerup {
                 None => [0, 0],

@@ -49,6 +49,8 @@ mod rally;
 mod render;
 #[path = "../render3d/mod.rs"]
 mod render3d;
+#[path = "../structure.rs"]
+mod structure;
 
 use std::sync::Arc;
 use std::time::Instant;
