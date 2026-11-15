@@ -649,6 +649,72 @@ mod tests {
     }
 
     #[test]
+    fn a_collapse_comes_down_the_scale_the_rally_climbs() {
+        let (mut director, game) = playing();
+        let scale = director.mode_playing().rally();
+        let fell = |nth| E::BrickFell {
+            rect: [400.0, 100.0, 52.0, 22.0],
+            kind: BrickKind::Normal,
+            nth,
+        };
+        // A row of three lets go together: one note, from the top.
+        let row = director.observe(&game, &[fell(1), fell(2), fell(3)]);
+        assert_eq!(pitches(&row), vec![semitones(scale[rally::STEPS - 1])]);
+        // The next rows step down; past the root the phrase drops an octave.
+        let mut heard = Vec::new();
+        for nth in 4..=13 {
+            heard.extend(pitches(&director.observe(&game, &[fell(nth)])));
+        }
+        assert!(heard.windows(2).take(8).all(|w| w[1] < w[0]), "{heard:?}");
+        let last = *heard.last().unwrap();
+        assert_eq!(last, semitones(scale[rally::STEPS - 1] - 12.0));
+
+        // The collapse over, the next one starts from the top again; a
+        // large one ends on a boom, unless the level's fanfare ends it.
+        let end = E::CollapseEnded {
+            bricks: 13,
+            score: 0,
+        };
+        assert!(cues(&director.observe(&game, &[end])).contains(&Cue::Explosion));
+        let quiet = director.observe(&game, &[end, E::LevelCleared]);
+        assert!(!cues(&quiet).contains(&Cue::Explosion));
+        let again = director.observe(&game, &[fell(1)]);
+        assert_eq!(pitches(&again), vec![semitones(scale[rally::STEPS - 1])]);
+    }
+
+    #[test]
+    fn a_structure_under_strain_is_heard_before_it_goes() {
+        let (mut director, game) = playing();
+        let scale = director.mode_playing().rally();
+        let rect = [300.0, 100.0, 52.0, 8.0];
+        let overloaded = E::BrickOverloaded {
+            rect,
+            load: 9,
+            capacity: 6,
+        };
+        // Three beams overloaded in one tick creak once, low.
+        let out = director.observe(&game, &[overloaded, overloaded, overloaded]);
+        assert_eq!(cues(&out), [Cue::Armor]);
+        assert!(matches!(out[0], Command::Play { pitch, .. } if pitch == semitones(-12.0)));
+
+        // A support lost moves the bass off the root.
+        let lost = E::SupportLost {
+            x: 300.0,
+            y: 100.0,
+            dependents: 12,
+        };
+        let out = director.observe(&game, &[lost]);
+        assert_eq!(pitches(&out), vec![semitones(scale[2] - 12.0)]);
+
+        // The keystone resolves on the root and its octave.
+        let out = director.observe(&game, &[E::KeystoneFell { x: 400.0, y: 137.0 }]);
+        assert_eq!(
+            pitches(&out),
+            vec![semitones(scale[0]), semitones(scale[0] + 12.0)]
+        );
+    }
+
+    #[test]
     fn many_bricks_in_one_tick_are_capped_but_still_climb() {
         let (mut director, game) = playing();
         let burst: Vec<E> = (0..8).map(|i| brick_at(100.0 + 50.0 * i as f32)).collect();

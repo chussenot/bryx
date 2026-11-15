@@ -72,6 +72,22 @@ brick map (`.`, `1`, `2`, `X`, one character per 50 px column), per-lane
 counts (`destructible`, `exposed` to a straight shot, `indestructible`),
 the balls, the paddle, lives, level, and `rallies_without_progress`.
 
+## Structures: the weak point
+
+On a structural level (`--structures`) the heuristic does not aim by lane.
+It asks the structure what each reachable brick would bring down if it
+broke (`Structure::what_falls`, which follows the overloads and the lost
+holds to the end) and aims at the one worth the most: the keystone's fall
+above all, then the most bricks for the fewest hits, the lowest on a tie.
+It is worked out again each time a brick goes. When no single brick
+brings anything down, it aims by lane as elsewhere.
+
+Headless, it brings all four structures down in 30 to 80 s of play,
+depending on the seed, with some 85% of the bricks fallen rather than
+broken (`mod.rs`,
+`the_heuristic_brings_down_every_structure`). That is a regression test
+and a pacing probe, not evidence that a person finds the weak point.
+
 ## Why a decision per rally, and why the game never waits
 
 A rally (paddle to wall and back) takes at least ~0.9 s at the 700 px/s

@@ -403,6 +403,54 @@ mod tests {
     use crate::game::{BallPower, Gun, GunKind};
 
     #[test]
+    fn a_brick_shows_what_it_carries_and_what_is_coming() {
+        use crate::game::{bricks_of_grid, Features};
+        use crate::structure::Structure;
+        // An anchor, a brick, and five more hung under it: the first one
+        // carries one too many; the rest carry less down the chain.
+        let grid = &["X", "1", "1", "1", "1", "1", "1"];
+        let mut game = Game::new()
+            .with_structures()
+            .with_features(Features::STRUCTURES);
+        let (bricks, origin) = bricks_of_grid(grid);
+        game.bricks = bricks;
+        game.structure = Structure::on_grid(origin);
+        game.structure.survey(&game.bricks, |_| {});
+
+        let look = |game: &Game, i: usize, reduced| structure_look(game, &game.bricks[i], reduced);
+        // Steel carries everything and shows nothing.
+        assert_eq!(look(&game, 0, false), StructureLook::default());
+        // The last carries nothing: no mark. The one over it carries one
+        // of its four: a short mark. Higher, a longer one.
+        assert_eq!(look(&game, 6, false).bearing, 0.0);
+        let (short, long) = (look(&game, 5, false).bearing, look(&game, 3, false).bearing);
+        assert!(0.0 < short && short < long && long < 1.0, "{short} {long}");
+        // Overloaded: a full mark and the orange glow, stronger as it
+        // nears giving way, and steady with reduced motion.
+        let first = look(&game, 1, true);
+        assert_eq!(first.bearing, 1.0);
+        let (color, early) = first.glow.unwrap();
+        assert_eq!(color, STRUCT_OVERLOAD);
+        for _ in 0..60 {
+            game.structure
+                .advance(&game.bricks, 1.0 / TICK_RATE, |_, _| {});
+        }
+        let (_, late) = look(&game, 1, true).glow.unwrap();
+        assert!(late > early, "{early} -> {late}");
+        assert_eq!(look(&game, 1, true).offset, [0.0, 0.0]);
+
+        // Cut loose: white-hot, and shaking unless motion is reduced.
+        game.bricks.remove(1);
+        game.structure.survey(&game.bricks, |_| {});
+        game.run_ticks = 7;
+        let loose = look(&game, 1, false);
+        assert_eq!(loose.glow.map(|g| g.0), Some(STRUCT_UNSTABLE));
+        assert_ne!(loose.offset[0], 0.0);
+        assert!(loose.offset[0].abs() <= UNSTABLE_SHAKE_PX);
+        assert_eq!(look(&game, 1, true).offset, [0.0, 0.0]);
+    }
+
+    #[test]
     fn a_power_shows_fully_until_its_warning_then_pulses_under_3_hz() {
         assert_eq!(expiry_strength(15.0, false), 1.0);
         assert_eq!(expiry_strength(POWER_WARNING_SECS, false), 1.0);

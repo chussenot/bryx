@@ -20,6 +20,9 @@ questions: it plays too well, and it hears nothing.
 | **H7** The mix sits right | Listening pass |
 | The four acts read as places | Interview: "Which level do you remember?" |
 | Levels that drag (the campaign re-curve) | `levels that drag` in the summary |
+| **S1** A new player brings a structure down without being told how | Round C: `first_fall_secs` on First fall; interview: "What made it fall?" |
+| **S2** Players aim at what carries, not at what is nearest | Round C: `brought_down` against `bricks`; observer notes on the first shot of Table and Bridge |
+| **S3** A collapse reads: what was hit, what it held, why it fell | Interview after Bridge: "Tell me what just happened" |
 
 ## Setup
 
@@ -53,6 +56,10 @@ target/release/bryx --playtest-log playtest/p1-b.csv --rally-score   # round B
 - **Round B (`--rally-score`):** the same players, ideally another day.
   Players are better the second time whatever the rules, so compare their
   rallies and answers between rounds rather than their raw scores.
+- **Round C (Structures):** ten minutes, `--structures`, the same "arrow
+  keys move, Space serves" and nothing about structures. Stop after the
+  fourth level or ten minutes. The four levels take a practiced player
+  under two minutes; what is measured is the first play.
 - **Record** the screen and the sound, with the player's consent.
 
 ### What the facilitator notes
@@ -101,7 +108,7 @@ quarter of the level, or a median over twice the condition's median level.
 |---|---|
 | `session`, `run` | A session (seconds since the epoch at start), and the run within it; a Continue or Play again is a new run |
 | `player` | `human`, or `autopilot` under `--autopilot` |
-| `mode` | `campaign`, `classic`, `shuffle`, or `levelset:` and its name |
+| `mode` | `campaign`, `structures`, `classic`, `shuffle`, or `levelset:` and its name |
 | `rally_score` | Whether `--rally-score` was on |
 | `level`, `name` | The level, as the HUD names it |
 | `outcome` | `cleared`, `warped` (Break gate), `victory`, `game_over`, or `abandoned` (Q or closing the window) |
@@ -112,6 +119,9 @@ quarter of the level, or a median over twice the condition's median level.
 | `bricks`, `capsules` | Bricks broken; capsules caught |
 | `capsule_letters` | The capsules caught, in order, by their letters (W, S, M, G, L, X, T, P, B, E, I) |
 | `score` | Points scored on the level |
+| `brought_down` | Structures: bricks that fell, were crushed or gave way, among `bricks` |
+| `collapses`, `largest_collapse` | Structures: collapses of two bricks or more, and the largest one |
+| `first_fall_secs` | Structures: seconds from the level's start to the first brick that fell; empty if none did |
 
 ## Decisions to take afterwards
 
@@ -122,3 +132,6 @@ quarter of the level, or a median over twice the condition's median level.
   levels the summary flags, starting with those flagged in both rounds.
 - **First-run lesson:** build it if few players name the rally unprompted
   (H8).
+- **Structures:** rebuild Act I on them if S1 and S3 hold for most
+  players. If S2 fails (players chip, and collapses are accidents), make
+  the load mark stronger before building more levels.

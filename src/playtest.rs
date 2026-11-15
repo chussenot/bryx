@@ -2,7 +2,9 @@
 //! played, for comparing human sessions (`docs/playtest.md`). It records
 //! what the review's hypotheses need: how long a level took, how long its
 //! last bricks were hunted, lives lost, the longest rally, bricks broken,
-//! capsules caught and the points scored.
+//! capsules caught and the points scored; and on a structural level, how
+//! many bricks were brought down rather than broken, in how many
+//! collapses, and how soon the first brick fell.
 //!
 //! Pure, like the renderers' view of the game: [`PlaytestLog::observe`]
 //! reads each tick's state and events and returns the rows of the levels
@@ -67,16 +69,25 @@ pub struct Row {
     /// order: "WMS".
     pub capsule_letters: String,
     pub score: u32,
+    /// Structural levels (0 and `None` elsewhere): bricks brought down
+    /// (fallen, crushed, given way) among `bricks`; collapses of two
+    /// bricks or more; the largest one; and the seconds from the level's
+    /// start to the first brick that fell.
+    pub brought_down: u32,
+    pub collapses: u32,
+    pub largest_collapse: u32,
+    pub first_fall_secs: Option<f32>,
 }
 
 impl Row {
     pub const HEADER: &'static str = "session,run,player,mode,rally_score,level,name,outcome,\
-        secs,hunt_secs,lives_lost,longest_rally,bricks,capsules,capsule_letters,score";
+        secs,hunt_secs,lives_lost,longest_rally,bricks,capsules,capsule_letters,score,\
+        brought_down,collapses,largest_collapse,first_fall_secs";
 
     /// The row as one CSV line (RFC 4180 quoting for the free-text fields).
     pub fn csv(&self) -> String {
         format!(
-            "{},{},{},{},{},{},{},{},{:.1},{:.1},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{:.1},{:.1},{},{},{},{},{},{},{},{},{},{}",
             self.session,
             self.run,
             self.player,
@@ -93,6 +104,11 @@ impl Row {
             self.capsules,
             self.capsule_letters,
             self.score,
+            self.brought_down,
+            self.collapses,
+            self.largest_collapse,
+            self.first_fall_secs
+                .map_or(String::new(), |s| format!("{s:.1}")),
         )
     }
 }
@@ -119,6 +135,10 @@ struct Level {
     longest_rally: u32,
     bricks: u32,
     caught: Vec<PowerUpKind>,
+    brought_down: u32,
+    collapses: u32,
+    largest_collapse: u32,
+    first_fall: Option<u64>,
 }
 
 /// Follows a session's runs level by level.
@@ -175,6 +195,10 @@ impl PlaytestLog {
             longest_rally: 0,
             bricks: 0,
             caught: Vec::new(),
+            brought_down: 0,
+            collapses: 0,
+            largest_collapse: 0,
+            first_fall: None,
         });
     }
 
@@ -204,6 +228,12 @@ impl PlaytestLog {
                 .map(|&k| crate::palette::capsule_letter(k))
                 .collect(),
             score: game.score.saturating_sub(level.start_score),
+            brought_down: level.brought_down,
+            collapses: level.collapses,
+            largest_collapse: level.largest_collapse,
+            first_fall_secs: level
+                .first_fall
+                .map(|at| secs(at.saturating_sub(level.start_ticks))),
         })
     }
 
@@ -241,6 +271,18 @@ impl PlaytestLog {
                         level.rally = 0;
                     }
                     GameEvent::PowerUpCaught(kind) => level.caught.push(*kind),
+                    GameEvent::BrickFell { .. } => {
+                        level.first_fall.get_or_insert(game.run_ticks);
+                    }
+                    // A collapse's bricks are counted when it ends, on the
+                    // tick before a level it finishes is replaced.
+                    GameEvent::CollapseEnded { bricks, .. } => {
+                        level.brought_down += bricks;
+                        level.largest_collapse = level.largest_collapse.max(*bricks);
+                        if *bricks >= 2 {
+                            level.collapses += 1;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -380,13 +422,22 @@ mod tests {
             capsules: 3,
             capsule_letters: "WBM".into(),
             score: 2160,
+            brought_down: 26,
+            collapses: 2,
+            largest_collapse: 21,
+            first_fall_secs: Some(4.25),
         };
         let line = row.csv();
         assert_eq!(
             line,
             "7,2,human,\"levelset:Bricks, \"\"Vol 2\"\"\",true,3,Twin towers,warped,\
-             61.2,9.0,1,12,40,3,WBM,2160"
+             61.2,9.0,1,12,40,3,WBM,2160,26,2,21,4.2"
         );
-        assert_eq!(Row::HEADER.split(',').count(), 16);
+        assert_eq!(Row::HEADER.split(',').count(), 20);
+        let plain = Row {
+            first_fall_secs: None,
+            ..row
+        };
+        assert!(plain.csv().ends_with(",21,"), "no fall: an empty field");
     }
 }

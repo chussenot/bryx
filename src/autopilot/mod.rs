@@ -1012,13 +1012,21 @@ mod rally_sync {
     #[test]
     fn the_scored_rally_is_the_rally_heard_and_seen() {
         let mut compared = 0;
-        for seed in 1..=3 {
-            let mut game = Game::with_seed(seed)
-                .with_campaign()
-                .with_features(Features {
-                    rally_score: true,
-                    ..Features::ALL
-                });
+        // The campaign, and the structures: there a brick that falls is
+        // one more of the rally, like a brick that breaks.
+        for seed in 1..=4 {
+            let mut game = if seed == 4 {
+                Game::with_seed(seed)
+                    .with_structures()
+                    .with_features(Features::STRUCTURES)
+            } else {
+                Game::with_seed(seed)
+                    .with_campaign()
+                    .with_features(Features {
+                        rally_score: true,
+                        ..Features::ALL
+                    })
+            };
             game.state = GameState::Playing;
             let mut autopilot = Autopilot::new(None, 1);
             let mut rally = Rally::default();
