@@ -986,7 +986,9 @@ fn ingest_brick_destroyed_events(ghosts: &mut Vec<TumbleGhost>, events: &[GameEv
             if ghosts.len() < MAX_DESTROY_GHOSTS {
                 ghosts.push(TumbleGhost::spawn(x, y, width, height, kind));
             }
-        } else if let GameEvent::AsteroidExploded { x, y } = *event {
+        } else if let GameEvent::AsteroidExploded { x, y } | GameEvent::AsteroidHitPaddle { x, y } =
+            *event
+        {
             // An explosive ball's blast leaves no rock: the bricks it broke
             // tumble on their own `BrickDestroyedAt`s.
             if ghosts.len() < MAX_DESTROY_GHOSTS {

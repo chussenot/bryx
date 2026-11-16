@@ -60,10 +60,13 @@ pub enum GameEvent {
     GunFired(crate::game::GunKind),
     /// An asteroid drifted in from the top.
     AsteroidSpawned,
-    /// An asteroid was blown up by a ball or the paddle, at its last
+    /// An asteroid was blown up by a ball or a bolt, at its last
     /// position: it is gone from `Game::asteroids` by the time this fires,
     /// so the renderers' explosion effect reads its spot from here.
     AsteroidExploded { x: f32, y: f32 },
+    /// An asteroid reached the paddle and blew up on it, costing points:
+    /// drawn like `AsteroidExploded`, heard as its own sound.
+    AsteroidHitPaddle { x: f32, y: f32 },
     /// An explosive ball blew up against a brick, centered on that brick:
     /// the renderers draw it like an asteroid's explosion, the director
     /// plays it a little quieter (there can be many in a row).

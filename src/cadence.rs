@@ -61,6 +61,7 @@ pub fn landing_delays(events: &[GameEvent], mut each: impl FnMut(usize, f32)) {
         match *event {
             GameEvent::BallExploded { x, y }
             | GameEvent::AsteroidExploded { x, y }
+            | GameEvent::AsteroidHitPaddle { x, y }
             | GameEvent::MeteorStruck { x, y } => {
                 blast = Some([x, y]);
             }

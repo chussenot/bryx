@@ -432,7 +432,7 @@ impl FxSystem {
                     self.blast([x, y]);
                     blast = Some([x, y]);
                 }
-                GameEvent::AsteroidExploded { x, y } => {
+                GameEvent::AsteroidExploded { x, y } | GameEvent::AsteroidHitPaddle { x, y } => {
                     self.asteroid([x, y]);
                     blast = Some([x, y]);
                 }

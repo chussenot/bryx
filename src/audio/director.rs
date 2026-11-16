@@ -403,6 +403,13 @@ impl Director {
                 GameEvent::AsteroidExploded { x, .. } => {
                     out.push(play(Cue::Explosion, 0.7, x));
                 }
+                // One reaches the paddle and costs points: the blast a
+                // fifth down and duller, under Tiny's sour fall an octave
+                // down. A loss, not a hit.
+                GameEvent::AsteroidHitPaddle { x, .. } => {
+                    out.push(pitched(Cue::Explosion, 0.5, x, semitones(-7.0)));
+                    out.push(pitched(Cue::Tiny, 0.6, x, semitones(-12.0)));
+                }
                 // Quieter than an asteroid's: an explosive ball can blow up
                 // every second for fifteen seconds, under the brick notes.
                 GameEvent::BallExploded { x, .. } if !ball_blast => {
@@ -849,6 +856,15 @@ mod tests {
         assert!(gain < 0.4, "under a ball's blast, far under an asteroid's");
         assert!(pan < 0.0, "heard on the left, where it landed");
         assert_eq!(pitch, semitones(7.0), "a fifth up: a crack, not a boom");
+    }
+
+    #[test]
+    fn an_asteroid_on_the_paddle_does_not_sound_like_one_blown_up() {
+        let (mut director, game) = playing();
+        let hit = director.observe(&game, &[E::AsteroidHitPaddle { x: 300.0, y: 560.0 }]);
+        let blown = director.observe(&game, &[E::AsteroidExploded { x: 300.0, y: 560.0 }]);
+        assert_eq!(cues(&hit), [Cue::Explosion, Cue::Tiny]);
+        assert_ne!(hit, blown);
     }
 
     #[test]

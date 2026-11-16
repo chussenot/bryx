@@ -167,6 +167,9 @@ const ASTEROID_FIRST_SPAWN_SECS: f32 = 4.0;
 const ASTEROID_SPAWN_SECS: std::ops::Range<f32> = 5.0..10.0;
 /// Points for blowing one up, with the ball or the paddle.
 const ASTEROID_SCORE: u32 = 100;
+/// What an asteroid costs when it reaches the paddle: more than one pays
+/// at x1, so letting them land is never worth it. The score stops at 0.
+const ASTEROID_PENALTY: u32 = 250;
 /// An asteroid's explosion hits every brick within this distance of its
 /// center (closest point of the brick): a little under a brick's width,
 /// so a blast takes out a small cluster, never a whole row.
@@ -2479,8 +2482,9 @@ impl Game {
         self.paddle_stun = 0.0;
     }
 
-    /// Spawns, moves and retires asteroids for one tick of play. Paddle
-    /// contact blows one up; one past the paddle just leaves.
+    /// Spawns, moves and retires asteroids for one tick of play. One that
+    /// touches the paddle blows up there and costs [`ASTEROID_PENALTY`];
+    /// one past the paddle just leaves.
     fn update_asteroids(&mut self, dt_fixed: f32) {
         if !self.features.asteroids {
             return;
@@ -2516,7 +2520,10 @@ impl Game {
         asteroids.retain_mut(|a| {
             a.advance(dt_fixed);
             if circle_touches_rect(a.x, a.y, a.radius, &paddle) {
-                self.explode_asteroid(a.x, a.y);
+                self.score = self.score.saturating_sub(ASTEROID_PENALTY);
+                self.events
+                    .push(GameEvent::AsteroidHitPaddle { x: a.x, y: a.y });
+                self.asteroid_blast(a.x, a.y);
                 return false;
             }
             a.y - a.radius <= paddle.bottom()
@@ -2545,12 +2552,18 @@ impl Game {
         self.explode_asteroid(asteroid.x, asteroid.y);
     }
 
-    /// An asteroid blows up at (`x`, `y`): it scores, and its blast hits
-    /// the bricks around it (see `blast_bricks`).
+    /// A ball or a bolt blows up an asteroid at (`x`, `y`): it scores, and
+    /// its blast hits the bricks around it.
     fn explode_asteroid(&mut self, x: f32, y: f32) {
-        self.stall_secs = 0.0;
         self.score += ASTEROID_SCORE * self.score_multiplier();
         self.events.push(GameEvent::AsteroidExploded { x, y });
+        self.asteroid_blast(x, y);
+    }
+
+    /// An asteroid's blast at (`x`, `y`), whatever set it off: it hits the
+    /// bricks around it (see `blast_bricks`).
+    fn asteroid_blast(&mut self, x: f32, y: f32) {
+        self.stall_secs = 0.0;
         let mut cracked = Vec::new();
         let destroyed = blast_bricks(
             &mut self.bricks,
@@ -5081,8 +5094,9 @@ mod tests {
     }
 
     #[test]
-    fn the_paddle_blows_up_an_asteroid_it_touches() {
+    fn an_asteroid_that_reaches_the_paddle_costs_points_down_to_zero() {
         let mut game = playing_game();
+        game.score = ASTEROID_PENALTY + 40;
         game.ball.attached = false;
         game.ball.x = 100.0;
         game.ball.y = 300.0;
@@ -5094,8 +5108,23 @@ mod tests {
         ));
         game.tick(&Input::default(), DT);
         assert!(game.asteroids.is_empty());
-        assert_eq!(game.score, ASTEROID_SCORE);
-        assert_eq!(game.lives, STARTING_LIVES, "no harm done");
+        assert_eq!(game.score, 40);
+        assert_eq!(game.lives, STARTING_LIVES, "points, never a life");
+        assert!(game.events.contains(&GameEvent::AsteroidHitPaddle {
+            x: paddle.x,
+            y: paddle.top() - ASTEROID_RADIUS - 0.1 + ASTEROID_FALL_SPEED * DT,
+        }));
+        assert!(!game
+            .events
+            .iter()
+            .any(|e| matches!(e, GameEvent::AsteroidExploded { .. })));
+
+        game.asteroids.push(test_asteroid(
+            paddle.x,
+            paddle.top() - ASTEROID_RADIUS - 0.1,
+        ));
+        game.tick(&Input::default(), DT);
+        assert_eq!(game.score, 0, "the score stops at zero");
     }
 
     #[test]

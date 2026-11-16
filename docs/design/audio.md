@@ -199,6 +199,7 @@ encode, and the mixer decodes it through a 256-entry table.
 | `laser`, `superlaser` | a gun fires | a note falling two octaves in 60 ms; a square falling three, with a buzz and a falling hiss |
 | `asteroid` | an asteroid arrives | a low clocked-noise rumble swelling in over a wavering drone |
 | `explosion` | an asteroid blows up | a noise burst whose clock falls three octaves (crack, then rumble), over a thump dropping a fifth, in a little room |
+| `explosion` + `tiny` | an asteroid reaches the paddle (−250) | the blast a fifth down and quieter, under Tiny's sour fall an octave down: a loss, not a hit |
 | `ball_lost` | one ball of a multiball drops | a descending figure that fades as it falls |
 | `warp` | leaving through the Break gate | one note rising three octaves over a rising rush of noise, into an echoing room |
 | `select`, `pause` | start, continue, resume; pause | two-note blips, up (the second leaning in) and down (the second stepping back) |

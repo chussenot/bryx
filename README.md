@@ -215,8 +215,9 @@ laser replaces the other.
 side to side. A ball that hits one blows it up and bounces off it, which
 can send it somewhere you didn't plan. The explosion also breaks the
 bricks around it (armored ones take one hit), so hitting one while it
-crosses the wall clears a cluster. The paddle and laser bolts blow them up
-too. Each is worth 100 points.
+crosses the wall clears a cluster. Laser bolts blow them up too. Each is
+worth 100 points, but one that reaches the paddle blows up on it and costs
+you 250, with a sour sound of its own: dodge them or shoot them.
 
 `cargo run --release -- --classic` plays as the game was first specified:
 Widen, Slow and Multiball only, and no asteroids.
