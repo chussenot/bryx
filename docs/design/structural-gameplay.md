@@ -4,7 +4,8 @@ How structural destruction works in BRYX: the model, the rules, what the
 simulation emits and what the player sees and hears. The idea behind it is
 in [`../concept.md`](../concept.md).
 
-Status: playable. 32 levels in four acts (`levels::STRUCTURES`), their own
+Status: playable, second version ([`structures-v2.md`](structures-v2.md)
+is the review that led to it). 32 levels in four acts (`levels::STRUCTURES`), their own
 menu row (Structures) and flag (`--structures`), both renderers, the
 sound director, the HUD, the autopilot and the playtest log. The campaign
 is not converted yet (see "Next").
@@ -126,42 +127,57 @@ nothing or over its limit.
 
 ### The paddle under a collapse
 
-A falling brick that lands on the paddle shatters on it and holds the
-paddle where it stands for `stun_secs` (0.75 s). A second one starts the
-time over; it is not added. The ball is still in flight, so the cost is
-whatever the paddle could not reach meanwhile.
+Before the keystone falls, a falling brick that lands on the paddle
+shatters on it and holds the paddle where it stands for `stun_secs`
+(0.75 s). A second one starts the time over; it is not added. The ball is
+still in flight, so the cost is whatever the paddle could not reach
+meanwhile.
 
-- **It is announced.** Both renderers draw a bar on the paddle's line
-  under every brick that will come down on it (`Game::fall_zones`): pale
-  while the brick still shakes in place, orange once it is in the air. A
-  brick that a standing brick will catch shows none. From losing its hold
-  to reaching the paddle a brick takes over a second.
-- **It ends with the level.** Once the keystone is down nothing that
-  falls touches the paddle: the level is won, the balls hold still, and
-  the collapse is the reward, not a last trap. A lost life and a new
-  level free a held paddle.
-- **It does not score.** No points are lost; time and the ball are.
+After the keystone falls, the level is won and the paddle **catches**
+what lands on it instead. Each caught brick scores again what it scored
+when it came down, and the finale's falling bricks are drawn in the
+keystone's gold. The same skill, reading where things land, pays in the
+finale instead of costing. (An earlier note proposed a bonus for staying
+clear of the finale. A structure 13 columns wide leaves 62 px on each
+side for a 100 px paddle, so on the widest levels it could not be won.)
 
-So it bites on the collapses that are steps, not the one that wins: a
-section cut loose on the way to the keystone, a neck that gave way, a
-roof dropped to crack what is under it. The plan now has a second
-question: where will this land, and where will the ball be then?
+- **Every landing is announced.** Both renderers draw a bar where each
+  brick that is coming down will land (`Game::fall_zones`): on the
+  paddle's line, or on the top of the brick it will crack or break.
+  Pale while the brick still shakes in place, orange once it is in the
+  air, gold when it is there to catch, and stronger as the landing
+  nears. A brick that steel or the keystone will stop shows none.
+- **It does not score against you.** No points are lost; time and the
+  ball are.
+- A lost life and a new level free a held paddle.
+
+So the hazard bites on the collapses that are steps: a floor dropped to
+get in (the Trapdoor), a load dropped on a mast (the Crane), a slab's
+overhang (the Bridge).
 
 ## 5. Scoring
 
 - A brick the ball breaks scores as with rally scoring: its row's value
   times its place in the rally, ×1 to ×10.
-- A brick brought down (it fell, was crushed, or gave way) scores
-  `collapse_factor` (2) times that, and is one more brick of the rally.
+- **A collapse belongs to the shot that set it off.** It is one run: it
+  starts at the rally of that shot and climbs one step for each brick the
+  structure brings down (fallen, crushed, given way), to ×10. The paddle
+  touching the ball while it falls does not reset it. Each brick scores
+  `collapse_factor` (2) times its value at the run's multiplier.
 - The keystone is worth 250 before the multipliers.
-- When the keystone falls, everything left is brought down and scored as
-  such. Finishing early, with the structure standing, therefore pays more
-  than chipping it away first.
+- **What the keystone's fall releases scores its plain value.** That fall
+  is the level ending, not the player's work. Without this, leaving the
+  structure standing for the finale paid more than bringing it down on
+  purpose: measured on the Bridge, chipping beside the keystone scored
+  27,160 against 21,900 for the planned drop. A test now holds the
+  planned cut ahead (`one_cut_outscores_chipping_the_same_structure_down`).
+- A brick caught in the finale scores again what it scored coming down.
 - No score accrues with time. The mode has no asteroids, so nothing pays
   for keeping the ball up.
 
-The HUD shows the tally of the level (broken, brought down) and each
-collapse of two bricks or more, as it runs and for 1.6 s after.
+The HUD shows the tally of the level (broken, brought down), each
+collapse of two bricks or more with the multiplier its run reached, as it
+runs and for 1.6 s after, and the finale's catch.
 
 This mode always scores by the rally and keeps one record, apart from the
 campaign's.
@@ -181,7 +197,8 @@ back.
 | `DebrisLanded { x, y }` | A falling brick landed; the hit brick's `BrickStruck` (by `Striker::Debris`) follows |
 | `PaddleStruck { x, y }` | A falling brick landed on the paddle |
 | `KeystoneFell { x, y }` | The level is won |
-| `CollapseEnded { bricks, score }` | Nothing cracks, shakes or falls any more |
+| `DebrisCaught { x, y, nth, points }` | A falling brick landed on the paddle after the keystone fell: caught |
+| `CollapseEnded { bricks, score, waves }` | Nothing cracks, shakes or falls any more; `waves` is how many sections let go |
 
 `rally.rs` counts a `BrickFell` as it counts a `BrickDestroyedAt`, so the
 scored rally, the note and the light still agree (a property test holds
@@ -189,27 +206,29 @@ them together over the structures too).
 
 ## 7. Sound
 
-Played on the existing cues, pitched in the playing track's scale
-(`audio/director.rs`). No new sample.
+Played on the existing cues, every pitch a step of the playing track's
+rally scale (`audio/director.rs`; a test holds every note of a collapse in
+the key). No new sample. A collapse is a phrase: tension rising with each
+wave, resolving on the root when it is over.
 
-| Event | Sound |
-|---|---|
-| A brick broken by the ball | The rally note, one step up the scale (as before) |
-| Overloaded | The armor's crack an octave down, quiet: tension |
-| Gives way | A short accent a semitone over the root, the one note out of key |
-| Support lost | A bass note off the root, louder the more it carried |
-| A row lets go | One note, down the scale from its top: a collapse descends where the rally climbs |
-| A falling brick lands | The steel knock, lower |
-| A falling brick lands on the paddle | The steel knock an octave down, loud, with the armor's crack |
-| Keystone falls | The root and its octave: the resolution; the level fanfare follows |
-| A collapse of eight or more ends | A low boom, unless the fanfare ends it |
+| Event | Sound | Role |
+|---|---|---|
+| A brick broken by the ball | The rally note, one step up the scale (as before) | The shot |
+| Overloaded | The armor's crack an octave down, quiet | Tension |
+| A section lets go | A bass note: the fifth, then the seventh, then the seventh an octave up, wave by wave | Rising tension |
+| Gives way | The leading tone: the track's seventh, under the root | Wants to resolve |
+| A row lets go | One note, down the scale from its top | The fall |
+| A falling brick lands | The steel knock, lower | |
+| A falling brick lands on the paddle | The steel knock an octave down, loud, with the armor's crack | |
+| A brick caught in the finale | Up the scale from the root, one step a catch | The answer |
+| The collapse ends | The root, low; for eight bricks or more, the low boom under it | Resolution |
+| Keystone falls | The root and its octave; the level fanfare follows | Final resolution |
 
-Each sounds once a tick at most, however many bricks do it together.
+Each sounds once a tick at most, however many bricks do it together. A
+support lost is not heard by itself: the section it lets go is.
 
-Known limit: the rally scale is the track's, but the accent and the boom
-are fixed intervals, and the pentatonic over the harmonic-minor tracks is
-as it was. Dedicated voices belong with the studio score (PR #34), which
-replaces the cue set this is written against.
+Known limit: dedicated voices belong with the studio score (PR #34),
+which replaces the cue set this is written against.
 
 ## 8. Look
 
@@ -217,14 +236,18 @@ One function, `palette::structure_look`, reads a brick's state and both
 renderers draw what it returns, so 2D and 3D say the same thing.
 
 - **Load mark:** a bar along the brick's lower edge (its near edge in
-  3D), as long as its share of its limit. No bar: it carries nothing.
+  3D), as long as its share of its limit, and warming from pale to the
+  overload's orange past half of it: what is close to failure reads
+  before it fails. No bar: it carries nothing.
 - **Overloaded:** orange over the brick, strengthening, beating from 3 to
   9 Hz.
 - **Unstable:** white-hot, shaking 1.5 px.
 - **Falling:** the brick at four fifths of its light; in 3D it tips
   forward as it gathers speed.
-- **Where it will land:** a bar on the paddle's line, pale then orange
-  (above).
+- **Where it will land:** a bar on the paddle's line or on the brick it
+  will hit, pale, then orange, then gold in the finale, stronger as the
+  landing nears (section 4).
+- **The finale:** falling bricks in the keystone's gold.
 - **A struck paddle:** the overload's orange, easing as it comes free.
 - **Reduced motion:** nothing shakes, beats or tips. The glow alone says
   it, steady.
@@ -235,16 +258,38 @@ and ring.
 
 ## 9. The 32 levels
 
-As many as the campaign, in four acts of eight. The first two are
-lessons: one cut and the structure comes down. From the third on, no
-single brick brings the keystone down, so a level is a sequence of cuts,
-and which comes first matters. Each act ends on one of the larger
+As many as the campaign, in four acts of eight, each act titled and
+grounded as the campaign's is (I · Foundations, II · Structures, III ·
+Machines, IV · The Vault). Each act ends on one of the larger
 structures: the Crane, the Bridge, the Gantry, the Citadel.
 
-Eight of them were built and played first (First fall, Table, Tower,
-Arch, Bridge, Vault, Gantry, Citadel). The other 24 are a first pass:
-checked by the tests and the autopilot below, not yet played by a person
-or looked at one by one on screen.
+**The first act is a curriculum,** one idea a level:
+
+| # | Level | What it teaches |
+|---|---|---|
+| 1 | First fall | A thin hold carries a heavy block. Won by an unaimed serve. |
+| 2 | Table | A support takes two hits; the one left takes it all. |
+| 3 | Chandelier | Several holds: it stands on two of three. |
+| 4 | Tower | Where you cut decides how much hangs. |
+| 5 | Trapdoor | A floor drops across the field: read the warning, then go in. |
+| 6 | Hammer | Drop a weight on a support: it cracks, and the load breaks it. Knock off the jib's hanging bricks first and it is too light to. |
+| 7 | Arch | A sequence: take one pier, then crack the other. |
+| 8 | Crane | All of it: a stay to cut, a load to drop on the mast, its end falling to the field first. |
+
+Three of them teach a single cut (First fall, Table, Hammer). In every
+other level no single brick brings the keystone down, so a level is a
+sequence of cuts.
+
+**The Bridge** (Act II's finale) is the full loop: cut a tie and the slab
+tears loose; its ends fall to the field (a threat), the rest cracks every
+deck brick it lands on; a cracked deck cannot hang from one pier, so one
+pier then brings it all down. Three hits, where the deck alone takes
+four, in either order. Chip the slab where it would have cracked the
+deck and that end holds.
+
+Eight levels of acts II to IV are on the review's revise list
+([`structures-v2.md`](structures-v2.md), section 6): slow because one
+target is hard to reach, or repeating another's idea.
 
 All are original. The shapes some take (an eye, a flower, a face, a
 lattice) are the kind brick-breaker levels have always drawn; none is
@@ -254,20 +299,20 @@ copied from another game or from a fetched levelset.
 |---|---|---|---|---|
 | 1 | I | First fall | Cut a beam | 2 |
 | 2 | I | Table | Break a leg | 2 |
-| 3 | I | Pendulum | Both ties | 2 |
-| 4 | I | Chandelier | Two of three holds | 3 |
-| 5 | I | Tower | Cut it low | 4 |
-| 6 | I | Portcullis | Two hangers | 3 |
+| 3 | I | Chandelier | Two of three holds | 3 |
+| 4 | I | Tower | Cut it low | 4 |
+| 5 | I | Trapdoor | Stand clear, then go in | 2 |
+| 6 | I | Hammer | Drop the hammer | 2 |
 | 7 | I | Arch | Weaken what is left | 4 |
-| 8 | I | Crane | Crack the last hanger | 2 |
-| 9 | II | Lantern | Cut two ties | 3 |
+| 8 | I | Crane | Let the load do it | 4 |
+| 9 | II | Portcullis | Two hangers | 3 |
 | 10 | II | Kite | Cut the strings | 3 |
 | 11 | II | Aqueduct | Free the middle span | 5 |
 | 12 | II | Mobile | Under the ties | 2 |
 | 13 | II | Eye | Two of three | 3 |
 | 14 | II | Hourglass | Clear the waist | 4 |
 | 15 | II | Scales | One hold, then crack it | 4 |
-| 16 | II | Bridge | Drop the slab whole | 4 |
+| 16 | II | Bridge | Crack the deck, then a pier | 4 |
 | 17 | III | Pagoda | Both sides of it | 4 |
 | 18 | III | Flower | Stem, then crack | 4 |
 | 19 | III | Windmill | Three of four | 4 |
@@ -286,24 +331,26 @@ copied from another game or from a fetched levelset.
 | 32 | IV | Citadel | Bring it all down | 6 |
 
 Each is checked by `game.rs`: all of it holds at the start, nothing starts
-over its limit, one keystone, no anchor beside it.
+over its limit, one keystone, no anchor beside it. Each of the eight
+levels above has tests for its intended solution and for the cut that
+does not work.
 
 ### How hard, measured
 
 Two numbers a test computes for every level
-(`the_structures_get_harder_and_past_the_second_none_falls_to_one_brick`),
+(`the_structures_get_harder_and_only_the_lessons_fall_to_one_brick`),
 and one from the autopilot:
 
 - **Hold:** the hits it takes to cut every chain from the keystone to an
   anchor (`Structure::keystone_holds`, a minimum cut). An upper bound on
   the work: a structure often comes down for less, when a cut leaves a
-  hold carrying more than it can. Its mean by act: 2.8, 3.5, 4.5,
+  hold carrying more than it can. Its mean by act: 2.9, 3.5, 4.5,
   5.8.
 - **One brick wins:** whether breaking a single brick, however many hits
-  it takes, ends the level. True of the first two levels only, found by
-  playing every brick of every level out.
-- **Autopilot:** it brings all 32 down on each of three seeds, in 24 to
-  25 minutes of play, struck by falling bricks 4 to 11 times
+  it takes, ends the level. True of the three single-cut lessons only,
+  found by playing every brick of every level out.
+- **Autopilot:** it brings all 32 down on each of three seeds, in 27 to
+  32 minutes of play, struck by falling bricks 8 to 16 times
   (`the_heuristic_brings_down_every_structure`, ignored by default: a few
   seconds in release). A pacing probe, not a measure of how hard a person
   finds them.
@@ -351,25 +398,26 @@ What makes a level harder, in order of effect:
 - **Difficulty is measured, not felt.** The numbers above say the levels
   ask for more as the acts go on; the order inside an act is a first
   guess. Whether a level is hard or merely slow is for the playtest.
-- **The 24 newer levels are a first pass** (above): correct by the rules,
-  winnable by the autopilot, unplayed.
-- **The autopilot rarely loses a life here.** It aims exactly and
-  returns nearly every ball. Its times say little about the pressure a
-  person is under.
-- **The hazard is occasional for a precise player.** Over the 32 levels
-  the autopilot, which steps aside, is struck 4 to 11 times a run (three
-  seeds). Most bricks fall with the keystone, when nothing can touch the
-  paddle. A player who chips, and so cuts more sections loose on the way,
-  will meet it more; how much is for the playtest.
+- **The first act and the Bridge are new and unplayed.** They are checked
+  by tests for each intended solution, and looked at on screen; no
+  person has played them.
+- **The autopilot does not find the drops.** It aims a straight line from
+  the paddle, so a tie hidden above a hammer or a load is out of its
+  reach: on the Hammer and the Crane it brute-forces the mast instead. It
+  still wins every level; the tests, not the autopilot, prove the drops.
+  One run of the Chandelier took it 562 s (25 s on the other seeds).
+- **The hazard is occasional for a precise player** outside the levels
+  built for it (the Trapdoor, the Crane, the Bridge, the Scaffold).
 - **Capsules can shortcut a level.** A Super laser, a Metal ball or a
   Meteor rain cuts holds faster than any shot. They drop only from bricks
   the ball breaks, so they are rare here; they are not tuned for this
   mode.
-- **The autopilot's forecast ignores collapse.** It predicts the ball
-  against the bricks as they stand; after a section falls the forecast is
-  recomputed, so it is late by one bounce, never wrong for long.
-- **`what_falls` undercounts.** It follows overloads and lost holds, not
-  what falling bricks would crush.
+- **The autopilot's ball forecast ignores collapse.** It predicts the
+  ball against the bricks as they stand; after a section falls the
+  forecast is recomputed, so it is late by one bounce, never wrong for
+  long.
+- **The collapse readout sits mid-field,** so falling bricks pass behind
+  it for a moment.
 - **Score scale.** A structure pays tens of thousands; the campaign pays
   about two thousand a level. The records are separate, and the numbers
   are untuned.
@@ -377,15 +425,10 @@ What makes a level harder, in order of effect:
 
 ## 12. Next
 
-1. **Human playtest** of the levels, the first act above all (`docs/playtest.md`): time to
-   the first fall, bricks brought down against broken, whether supports
-   are aimed at, and where players stall.
-2. **More of the hazard, if the playtest asks for it.** Two ways, in
-   this order: levels with more to bring down before the keystone (the
-   hazard as built, met more often); then a reason to get clear of the
-   winning collapse too, as a bonus for an untouched paddle, never as a
-   life.
-3. **Act I rebuilt on structures**, eight levels, teaching one idea each;
-   then the other acts (moving anchors for Machines, armored supports for
-   the Vault).
+1. **Human playtest** of the first act and the Bridge (`docs/playtest.md`,
+   round C and hypotheses S1 to S6).
+2. **The revise list** of acts II to IV, with the playtest's evidence.
+3. **Act III as machines:** moving parts designed with the levels that
+   need them. A shutter (a steel door on a cycle) was prototyped and set
+   aside for it.
 4. **Dedicated collapse voices** once the studio score has merged.

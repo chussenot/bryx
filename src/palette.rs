@@ -19,7 +19,7 @@
 //! pattern (`assets.rs`). See PRODUCT.md, "Accessibility & Inclusion".
 
 use crate::events::PowerUpKind;
-use crate::game::{BallMode, Brick, Game, POWER_WARNING_SECS, TICK_RATE};
+use crate::game::{BallMode, Brick, FallZone, Game, Landing, POWER_WARNING_SECS, TICK_RATE};
 use crate::levels::BrickKind;
 use crate::structure::{Phase, RULES};
 
@@ -230,15 +230,39 @@ pub fn paddle_stun(game: &Game) -> Option<(Rgb, f32)> {
     })
 }
 
-/// The warning on the paddle's line under a brick about to come down on
-/// it (`Game::fall_zones`): its color and how much of it. Pale while the
-/// brick still shakes in place, hot once it is in the air.
-pub fn fall_zone(falling: bool) -> (Rgb, f32) {
-    if falling {
-        (STRUCT_OVERLOAD, 0.9)
-    } else {
-        (STRUCT_UNSTABLE, 0.45)
+/// How far ahead a landing mark starts to strengthen: it is faint for
+/// anything further off.
+const FALL_ZONE_HORIZON_SECS: f32 = 1.2;
+
+/// The mark where a brick that is coming down will land (`Game::fall_zones`),
+/// on the paddle's line or on the brick it will hit: its color and how
+/// much of it.
+/// - Before the keystone falls it is a threat: pale while the brick still
+///   shakes in place, the overload's orange once it is in the air.
+/// - After, on the paddle's line, it is something to catch: the keystone's
+///   gold.
+/// - It strengthens as the landing nears, so "now" reads apart from "in a
+///   second".
+pub fn fall_zone(zone: &FallZone) -> (Rgb, f32) {
+    let soon = (1.0 - zone.secs / FALL_ZONE_HORIZON_SECS).clamp(0.0, 1.0);
+    match (zone.on, zone.falling) {
+        (Landing::Catch, _) => (BRICK_KEYSTONE, 0.45 + 0.5 * soon),
+        (_, true) => (STRUCT_OVERLOAD, 0.4 + 0.55 * soon),
+        (_, false) => (STRUCT_UNSTABLE, 0.3 + 0.25 * soon),
     }
+}
+
+/// A falling brick's overlay: none while it threatens, the keystone's gold
+/// once the keystone is down and it is there to be caught.
+pub fn debris_glow(game: &Game) -> Option<(Rgb, f32)> {
+    game.finale.then_some((BRICK_KEYSTONE, 0.55))
+}
+
+/// `a` toward `b` by `t`, 0 to 1, channel by channel in sRGB.
+fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
+    let t = t.clamp(0.0, 1.0);
+    let ch = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
+    Rgb(ch(a.0, b.0), ch(a.1, b.1), ch(a.2, b.2))
 }
 
 /// How a brick's structural state shows: one reading of the simulation,
@@ -255,6 +279,16 @@ pub struct StructureLook {
     /// share of its limit it carries (0: it carries nothing, no bar; 1: at
     /// its limit or past it).
     pub bearing: f32,
+    /// The load mark's color: pale up to half its limit, then warming to
+    /// the overload's orange as it nears it. What is close to failure
+    /// reads before it fails.
+    pub bearing_color: Rgb,
+}
+
+impl Default for Rgb {
+    fn default() -> Self {
+        STRUCT_BEARING
+    }
 }
 
 /// An unstable brick's shake, in px, and how fast.
@@ -265,14 +299,17 @@ const UNSTABLE_SHAKE_HZ: f32 = 11.0;
 /// shakes or beats: the glow alone says it, steady.
 pub fn structure_look(game: &Game, brick: &Brick, reduced_motion: bool) -> StructureLook {
     let state = game.structure.state(brick);
+    let share = f32::from(state.load) / f32::from(state.capacity.max(1));
     let bearing = if state.load == 0 {
         0.0
     } else {
-        (f32::from(state.load) / f32::from(state.capacity.max(1))).clamp(0.25, 1.0)
+        share.clamp(0.25, 1.0)
     };
+    let bearing_color = mix(STRUCT_BEARING, STRUCT_OVERLOAD, (share - 0.5) * 2.0);
     match state.phase {
         Phase::Intact | Phase::Stressed => StructureLook {
             bearing,
+            bearing_color,
             ..StructureLook::default()
         },
         Phase::Overloaded => {
@@ -288,6 +325,7 @@ pub fn structure_look(game: &Game, brick: &Brick, reduced_motion: bool) -> Struc
             StructureLook {
                 glow: Some((STRUCT_OVERLOAD, (0.3 + 0.45 * state.progress) * beat)),
                 bearing: 1.0,
+                bearing_color: STRUCT_OVERLOAD,
                 ..StructureLook::default()
             }
         }
@@ -304,6 +342,7 @@ pub fn structure_look(game: &Game, brick: &Brick, reduced_motion: bool) -> Struc
                 offset: [dx, 0.0],
                 glow: Some((STRUCT_UNSTABLE, 0.4 + 0.25 * state.progress)),
                 bearing: 0.0,
+                bearing_color,
             }
         }
     }
@@ -484,9 +523,35 @@ mod tests {
             nearly_free < full && nearly_free > 0.4,
             "{nearly_free} {full}"
         );
-        // In the air is hotter and stronger than still shaking in place.
-        assert!(fall_zone(true).1 > fall_zone(false).1);
-        assert_ne!(fall_zone(true).0, fall_zone(false).0);
+        // In the air is hotter and stronger than still shaking in place;
+        // nearer is stronger; and after the keystone it is gold.
+        let zone = |falling, secs, on| FallZone {
+            x: 400.0,
+            width: 52.0,
+            y: 554.0,
+            on,
+            falling,
+            secs,
+        };
+        let (air, shake) = (
+            fall_zone(&zone(true, 0.6, Landing::Paddle)),
+            fall_zone(&zone(false, 0.6, Landing::Paddle)),
+        );
+        assert!(air.1 > shake.1);
+        assert_ne!(air.0, shake.0);
+        let (near, far) = (
+            fall_zone(&zone(true, 0.1, Landing::Paddle)),
+            fall_zone(&zone(true, 1.5, Landing::Paddle)),
+        );
+        assert!(near.1 > far.1, "{near:?} {far:?}");
+        assert_eq!(
+            fall_zone(&zone(true, 0.5, Landing::Catch)).0,
+            BRICK_KEYSTONE
+        );
+        assert_eq!(
+            fall_zone(&zone(true, 0.5, Landing::Brick)).0,
+            STRUCT_OVERLOAD
+        );
     }
 
     #[test]

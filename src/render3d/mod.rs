@@ -40,8 +40,8 @@ use crate::fx::gpu::{
 };
 use crate::fx::{FxFrame, Quality};
 use crate::game::{
-    Ball, Brick, Game, GameState, GunKind, Paddle, ASTEROID_RADIUS, GATE_REACH_ABOVE_PADDLE,
-    PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH,
+    Ball, Brick, Game, GameState, GunKind, Landing, Paddle, ASTEROID_RADIUS,
+    GATE_REACH_ABOVE_PADDLE, PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH,
 };
 use crate::hud::{self, Hud, BAND_HEIGHT, CANVAS_HEIGHT, CANVAS_WIDTH};
 use crate::levels::BrickKind;
@@ -95,6 +95,8 @@ const BEARING_BAR: f32 = 2.0;
 /// The fall warning: a bar this deep, this far ahead of the paddle.
 const FALL_ZONE_BAR: f32 = 3.0;
 const FALL_ZONE_LIFT: f32 = 6.0;
+/// The same bar on a brick a falling brick will hit, just over its top.
+const FALL_MARK_LIFT: f32 = 2.0;
 /// How far a falling brick tips forward at its top speed, in radians.
 const DEBRIS_TILT: f32 = 0.6;
 /// `game.rs` keeps at most 3 asteroids; a defensive bound like the others.
@@ -1732,7 +1734,7 @@ impl Renderer3D {
                             STRUCT_MARK_LIFT,
                             BEARING_BAR / 2.0,
                         ],
-                        palette::STRUCT_BEARING.linear(),
+                        look.bearing_color.linear(),
                     )
                     .with_emissive(0.15),
                 );
@@ -1753,7 +1755,20 @@ impl Renderer3D {
         // tipping forward as it gathers speed (still with reduced motion).
         for d in curr.debris.iter().take(MAX_DEBRIS) {
             let (x, z) = world_xz(d.x, d.y);
+            // After the keystone: mixed toward gold, there to be caught.
             let [r, g, b, a] = palette::brick(d.kind, d.hits_remaining).linear();
+            // Dimmed a little while it threatens, like the 2D tint.
+            let [r, g, b] = match palette::debris_glow(curr) {
+                Some((color, k)) => {
+                    let [gr, gg, gb, _] = color.linear();
+                    [
+                        r * (1.0 - k) + gr * k,
+                        g * (1.0 - k) + gg * k,
+                        b * (1.0 - k) + gb * k,
+                    ]
+                }
+                None => [r * 0.8, g * 0.8, b * 0.8],
+            };
             let tilt = if reduced_motion {
                 0.0
             } else {
@@ -1763,7 +1778,7 @@ impl Renderer3D {
                 Instance3D::textured(
                     [x, BRICK_THICKNESS / 2.0, z],
                     [d.width / 2.0, BRICK_THICKNESS / 2.0, d.height / 2.0],
-                    [r * 0.8, g * 0.8, b * 0.8, a],
+                    [r, g, b, a],
                     self.atlas
                         .uv_rect(sprite_for_kind(d.kind, d.hits_remaining)),
                 )
@@ -1774,12 +1789,18 @@ impl Renderer3D {
         // the floor just ahead of the paddle, pale while the brick still
         // shakes in place, hot once it is in the air.
         for zone in curr.fall_zones().iter().take(MAX_BRICKS) {
-            let (x, z) = world_xz(zone.x, curr.paddle.top() - FALL_ZONE_LIFT);
-            let (color, alpha) = palette::fall_zone(zone.falling);
+            // On the floor ahead of the paddle, or on the top of the brick
+            // it will hit: the same bar as in 2D (`palette::fall_zone`).
+            let (lift, height) = match zone.on {
+                Landing::Brick => (FALL_MARK_LIFT, BRICK_THICKNESS + STRUCT_MARK_LIFT),
+                Landing::Paddle | Landing::Catch => (FALL_ZONE_LIFT, STRUCT_MARK_LIFT),
+            };
+            let (x, z) = world_xz(zone.x, zone.y - lift);
+            let (color, alpha) = palette::fall_zone(zone);
             let [r, g, b, _] = color.linear();
             cube_instances.push(
                 Instance3D::new(
-                    [x, STRUCT_MARK_LIFT, z],
+                    [x, height, z],
                     [
                         zone.width / 2.0 - 1.0,
                         STRUCT_MARK_LIFT,

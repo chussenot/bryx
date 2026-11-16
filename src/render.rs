@@ -21,7 +21,7 @@ use crate::fx::gpu::{
 };
 use crate::fx::{FxFrame, Quality};
 use crate::game::{
-    Ball, BallMode, Brick, Game, GameState, GunKind, Paddle, GATE_REACH_ABOVE_PADDLE,
+    Ball, BallMode, Brick, Game, GameState, GunKind, Landing, Paddle, GATE_REACH_ABOVE_PADDLE,
     PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH,
 };
 use crate::hud::{self, Hud, BAND_HEIGHT};
@@ -159,6 +159,8 @@ const BEARING_BAR: f32 = 2.0;
 /// The fall warning: a bar this thick, this far over the paddle's top.
 const FALL_ZONE_BAR: f32 = 3.0;
 const FALL_ZONE_LIFT: f32 = 5.0;
+/// The same bar on a brick a falling brick will hit, just over its top.
+const FALL_MARK_LIFT: f32 = 2.0;
 /// A falling brick's tint: its sprite at four fifths of its light.
 const DEBRIS_TINT: [f32; 4] = [0.8, 0.8, 0.8, 1.0];
 
@@ -172,7 +174,7 @@ const MAX_QUADS: usize = 2
     + TRAIL_LEN
     // A brick, its structural glow and its load mark.
     + MAX_BRICKS * 3
-    + MAX_DEBRIS
+    + MAX_DEBRIS * 2
     // The warning under each brick about to come down on the paddle.
     + MAX_BRICKS
     + MAX_DESTROY_GHOSTS
@@ -984,7 +986,7 @@ impl Renderer {
         let mut instances = Vec::with_capacity(
             2 + TRAIL_LEN
                 + curr.bricks.len() * 3
-                + curr.debris.len().min(MAX_DEBRIS)
+                + curr.debris.len().min(MAX_DEBRIS) * 2
                 + MAX_BRICKS
                 + destroyed_ghosts.len()
                 + curr.extra_balls.len().min(MAX_EXTRA_BALLS)
@@ -1105,7 +1107,7 @@ impl Renderer {
                 ));
             }
             if look.bearing > 0.0 {
-                let [r, g, b, _] = palette::STRUCT_BEARING.linear();
+                let [r, g, b, _] = look.bearing_color.linear();
                 let inset = 2.0_f32.min(half_size[0] / 2.0);
                 instances.push(QuadInstance::new(
                     [center[0], center[1] + half_size[1] - BEARING_BAR],
@@ -1130,15 +1132,27 @@ impl Renderer {
                 uv,
                 DEBRIS_TINT,
             ));
+            // After the keystone: gold, there to be caught.
+            if let Some((color, strength)) = palette::debris_glow(curr) {
+                let [r, g, b, _] = color.linear();
+                instances.push(QuadInstance::new(
+                    shaken(d.x, d.y),
+                    [d.width / 2.0, d.height / 2.0],
+                    [r, g, b, strength],
+                ));
+            }
         }
-        // Where they will land on the paddle's line: a bar just over it,
-        // pale while the brick still shakes in place, hot once it is in
-        // the air. What a standing brick will catch shows none.
+        // Where they will land: a bar on the paddle's line, or on the top
+        // of the brick they will hit (`palette::fall_zone` says how).
         for zone in curr.fall_zones().iter().take(MAX_BRICKS) {
-            let (color, alpha) = palette::fall_zone(zone.falling);
+            let (color, alpha) = palette::fall_zone(zone);
             let [r, g, b, _] = color.linear();
+            let lift = match zone.on {
+                Landing::Brick => FALL_MARK_LIFT,
+                Landing::Paddle | Landing::Catch => FALL_ZONE_LIFT,
+            };
             instances.push(QuadInstance::new(
-                shaken(zone.x, curr.paddle.top() - FALL_ZONE_LIFT),
+                shaken(zone.x, zone.y - lift),
                 [zone.width / 2.0 - 1.0, FALL_ZONE_BAR / 2.0],
                 [r, g, b, alpha],
             ));

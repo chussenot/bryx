@@ -11,8 +11,8 @@
 //!   lights the act's floor, and goes back down at the paddle;
 //! - a **title**, shown with the serve prompt on the act's first level.
 //!
-//! Campaign only: Classic, levelsets and Shuffle have no acts and keep
-//! the plain field. Pure: game in, geometry and colors out.
+//! The campaign and the structures: Classic, levelsets and Shuffle have no
+//! acts and keep the plain field. Pure: game in, geometry and colors out.
 
 use crate::game::{
     Game, LevelSetKind, BRICK_GRID_MARGIN_TOP, LEVELS_PER_ACT, PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH,
@@ -91,11 +91,15 @@ const GRID_TOP: f32 = BRICK_GRID_MARGIN_TOP;
 /// make room for.
 pub const MAX_GROUND_RECTS: usize = 200;
 
-/// The movement the game is in: its campaign act, or `None` outside the
-/// campaign.
+/// The movement the game is in: its act, in the campaign or in the
+/// structures (both are 32 levels in four acts of eight), or `None`
+/// anywhere else.
 pub fn of(game: &Game) -> Option<&'static Movement> {
-    (game.level_set() == LevelSetKind::Campaign)
-        .then(|| &MOVEMENTS[((game.level.max(1) - 1) / LEVELS_PER_ACT).min(MOVEMENTS.len() - 1)])
+    matches!(
+        game.level_set(),
+        LevelSetKind::Campaign | LevelSetKind::Structures
+    )
+    .then(|| &MOVEMENTS[((game.level.max(1) - 1) / LEVELS_PER_ACT).min(MOVEMENTS.len() - 1)])
 }
 
 /// The movement whose first level this is, when it is one: the act the
@@ -267,6 +271,20 @@ mod tests {
             ]
         );
         assert!(of(&Game::new()).is_none(), "Classic has no acts");
+        // The structures are four acts of eight too, and take the same
+        // four movements.
+        let mut structures = Game::new().with_structures();
+        for (level, name) in [
+            (1, "FOUNDATIONS"),
+            (16, "STRUCTURES"),
+            (17, "MACHINES"),
+            (32, "THE VAULT"),
+        ] {
+            structures.level = level;
+            assert_eq!(of(&structures).unwrap().name, name, "structure {level}");
+        }
+        structures.level = 17;
+        assert_eq!(opening(&structures).unwrap().numeral, "III");
     }
 
     #[test]

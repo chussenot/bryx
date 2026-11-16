@@ -11,7 +11,7 @@
 //! that ended. `main.rs` appends them to the file. Nothing is ever sent
 //! anywhere.
 
-use crate::events::{GameEvent, PowerUpKind};
+use crate::events::{GameEvent, PowerUpKind, Striker};
 use crate::game::{Game, GameState, TICK_RATE};
 use crate::levels::BrickKind;
 
@@ -79,17 +79,29 @@ pub struct Row {
     pub first_fall_secs: Option<f32>,
     /// Structural levels: times a falling brick landed on the paddle.
     pub paddle_hits: u32,
+    /// Structural levels, before the keystone fell: bricks lost that
+    /// carried others (support cuts), collapses of two bricks or more that
+    /// ended (intermediate collapses), and hits a falling brick dealt to
+    /// the structure, cracking or breaking what it landed on (debris hits).
+    pub support_cuts: u32,
+    pub intermediate_collapses: u32,
+    pub debris_hits: u32,
+    /// Structural levels: falling bricks caught in the finale.
+    pub caught: u32,
+    /// The longest stretch in play with nothing broken or brought down.
+    pub longest_idle_secs: f32,
 }
 
 impl Row {
     pub const HEADER: &'static str = "session,run,player,mode,rally_score,level,name,outcome,\
         secs,hunt_secs,lives_lost,longest_rally,bricks,capsules,capsule_letters,score,\
-        brought_down,collapses,largest_collapse,first_fall_secs,paddle_hits";
+        brought_down,collapses,largest_collapse,first_fall_secs,paddle_hits,\
+        support_cuts,intermediate_collapses,debris_hits,caught,longest_idle_secs";
 
     /// The row as one CSV line (RFC 4180 quoting for the free-text fields).
     pub fn csv(&self) -> String {
         format!(
-            "{},{},{},{},{},{},{},{},{:.1},{:.1},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{:.1},{:.1},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{:.1}",
             self.session,
             self.run,
             self.player,
@@ -112,6 +124,11 @@ impl Row {
             self.first_fall_secs
                 .map_or(String::new(), |s| format!("{s:.1}")),
             self.paddle_hits,
+            self.support_cuts,
+            self.intermediate_collapses,
+            self.debris_hits,
+            self.caught,
+            self.longest_idle_secs,
         )
     }
 }
@@ -143,6 +160,14 @@ struct Level {
     largest_collapse: u32,
     first_fall: Option<u64>,
     paddle_hits: u32,
+    support_cuts: u32,
+    intermediate_collapses: u32,
+    debris_hits: u32,
+    debris_caught: u32,
+    keystone_down: bool,
+    /// The last tick something broke or came down, and the longest wait.
+    last_progress: u64,
+    longest_idle: u64,
 }
 
 /// Follows a session's runs level by level.
@@ -204,6 +229,13 @@ impl PlaytestLog {
             largest_collapse: 0,
             first_fall: None,
             paddle_hits: 0,
+            support_cuts: 0,
+            intermediate_collapses: 0,
+            debris_hits: 0,
+            debris_caught: 0,
+            keystone_down: false,
+            last_progress: game.run_ticks,
+            longest_idle: 0,
         });
     }
 
@@ -240,6 +272,15 @@ impl PlaytestLog {
                 .first_fall
                 .map(|at| secs(at.saturating_sub(level.start_ticks))),
             paddle_hits: level.paddle_hits,
+            support_cuts: level.support_cuts,
+            intermediate_collapses: level.intermediate_collapses,
+            debris_hits: level.debris_hits,
+            caught: level.debris_caught,
+            longest_idle_secs: secs(
+                level
+                    .longest_idle
+                    .max(game.run_ticks.saturating_sub(level.last_progress)),
+            ),
         })
     }
 
@@ -267,6 +308,9 @@ impl PlaytestLog {
             for event in events {
                 match event {
                     GameEvent::BrickDestroyed => {
+                        let idle = game.run_ticks.saturating_sub(level.last_progress);
+                        level.longest_idle = level.longest_idle.max(idle);
+                        level.last_progress = game.run_ticks;
                         level.bricks += 1;
                         level.rally += 1;
                         level.longest_rally = level.longest_rally.max(level.rally);
@@ -281,9 +325,21 @@ impl PlaytestLog {
                         level.first_fall.get_or_insert(game.run_ticks);
                     }
                     GameEvent::PaddleStruck { .. } => level.paddle_hits += 1,
+                    GameEvent::DebrisCaught { .. } => level.debris_caught += 1,
+                    GameEvent::KeystoneFell { .. } => level.keystone_down = true,
+                    GameEvent::SupportLost { .. } if !level.keystone_down => {
+                        level.support_cuts += 1;
+                    }
+                    GameEvent::BrickStruck {
+                        by: Striker::Debris,
+                        ..
+                    } if !level.keystone_down => level.debris_hits += 1,
                     // A collapse's bricks are counted when it ends, on the
                     // tick before a level it finishes is replaced.
                     GameEvent::CollapseEnded { bricks, .. } => {
+                        if *bricks >= 2 && !level.keystone_down {
+                            level.intermediate_collapses += 1;
+                        }
                         level.brought_down += bricks;
                         level.largest_collapse = level.largest_collapse.max(*bricks);
                         if *bricks >= 2 {
@@ -434,18 +490,23 @@ mod tests {
             largest_collapse: 21,
             first_fall_secs: Some(4.25),
             paddle_hits: 3,
+            support_cuts: 4,
+            intermediate_collapses: 1,
+            debris_hits: 2,
+            caught: 5,
+            longest_idle_secs: 12.25,
         };
         let line = row.csv();
         assert_eq!(
             line,
             "7,2,human,\"levelset:Bricks, \"\"Vol 2\"\"\",true,3,Twin towers,warped,\
-             61.2,9.0,1,12,40,3,WBM,2160,26,2,21,4.2,3"
+             61.2,9.0,1,12,40,3,WBM,2160,26,2,21,4.2,3,4,1,2,5,12.2"
         );
-        assert_eq!(Row::HEADER.split(',').count(), 21);
+        assert_eq!(Row::HEADER.split(',').count(), 26);
         let plain = Row {
             first_fall_secs: None,
             ..row
         };
-        assert!(plain.csv().ends_with(",21,,3"), "no fall: an empty field");
+        assert!(plain.csv().contains(",21,,3,"), "no fall: an empty field");
     }
 }

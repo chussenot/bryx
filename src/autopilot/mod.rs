@@ -35,7 +35,7 @@ use std::time::Duration;
 
 use crate::events::{GameEvent, PowerUpKind};
 use crate::game::{
-    forecast_crossing, Ball, Forecast, Game, GameState, Input, Paddle, PADDLE_SPEED,
+    forecast_crossing, Ball, Forecast, Game, GameState, Input, Landing, Paddle, PADDLE_SPEED,
     PLAYFIELD_WIDTH, POWERUP_FALL_SPEED,
 };
 use board::{Board, LANES};
@@ -77,6 +77,9 @@ const CATCH_RETURN_MARGIN: f32 = 0.6;
 const DODGE_SECS: f32 = 1.0;
 const DODGE_MARGIN: f32 = 8.0;
 const DODGE_PASS_SECS: f32 = 0.1;
+/// How long a break is played out to see what it sets off: a drop, the
+/// overload it causes, and that overload giving way.
+const FORECAST_SECS: f32 = 4.0;
 
 pub const LANE_NAMES: [&str; LANES] = ["far_left", "left", "center", "right", "far_right"];
 
@@ -424,29 +427,18 @@ impl Autopilot {
         let paddle = &game.paddle;
         let half = paddle.width / 2.0 + DODGE_MARGIN;
         // Each falling brick the paddle could be under: the stretch of
-        // paddle positions it would hit, and when it gets there.
-        let rules = crate::structure::RULES;
+        // paddle positions it would hit, and when it gets there. Only what
+        // threatens: a brick to catch in the finale is no reason to move.
         let mut spans: Vec<(f32, f32, f32)> = game
             .fall_zones()
             .iter()
-            .filter(|zone| zone.falling)
-            .filter_map(|zone| {
-                let d = game.debris.iter().find(|d| d.x == zone.x)?;
-                let drop = paddle.top() - (d.y + d.height / 2.0);
-                // Speeding up to its top speed, then steady.
-                let ramp = ((rules.terminal_speed - d.vy) / rules.gravity).max(0.0);
-                let ramp_drop = d.vy * ramp + 0.5 * rules.gravity * ramp * ramp;
-                let secs = if drop <= ramp_drop {
-                    let v = d.vy;
-                    (-v + (v * v + 2.0 * rules.gravity * drop.max(0.0)).sqrt()) / rules.gravity
-                } else {
-                    ramp + (drop - ramp_drop) / rules.terminal_speed
-                };
-                (secs < DODGE_SECS).then_some((
+            .filter(|zone| zone.falling && zone.on == Landing::Paddle && zone.secs < DODGE_SECS)
+            .map(|zone| {
+                (
                     zone.x - zone.width / 2.0 - half,
                     zone.x + zone.width / 2.0 + half,
-                    secs,
-                ))
+                    zone.secs,
+                )
             })
             .collect();
         spans.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -603,12 +595,17 @@ impl Autopilot {
             let Some(target) = reachable(brick) else {
                 continue;
             };
-            let (falls, keystone) = game.structure.what_falls(&game.bricks, index);
-            if falls == 0 {
+            // The graph says whether anything would fall; only then is the
+            // break played out, to see what that fall breaks in turn.
+            if game.structure.what_falls(&game.bricks, index).0 == 0 {
                 continue;
             }
+            let forecast = game.forecast_break(index, FORECAST_SECS);
             let hits = u32::from(brick.hits_remaining.max(1));
-            let worth = (u32::from(falls) + if keystone { 1000 } else { 0 }) / hits;
+            let worth = (forecast.brought_down + if forecast.keystone { 1000 } else { 0 }) / hits;
+            if worth == 0 {
+                continue;
+            }
             if best.is_none_or(|(w, y, _)| (worth, brick.y) > (w, y)) {
                 best = Some((worth, brick.y, target));
             }
@@ -858,21 +855,36 @@ mod tests {
         let mut level = game.level;
         let mut tally = (0, 0);
         let mut started = 0.0;
+        // Before the keystone fell, in the level under way: collapses that
+        // ended, hits falling bricks dealt the structure, paddle hits.
+        let (mut keystone, mut inter, mut debris, mut hits) = (false, 0, 0, 0);
         for _ in 0..120 * 3600 {
             let input = autopilot.input(&game, DT);
             game.tick(&input, DT);
             autopilot.observe(&game);
-            struck += game
-                .events
-                .iter()
-                .filter(|e| matches!(e, GameEvent::PaddleStruck { .. }))
-                .count();
+            for event in &game.events {
+                match event {
+                    GameEvent::KeystoneFell { .. } => keystone = true,
+                    GameEvent::CollapseEnded { bricks, .. } if !keystone && *bricks >= 2 => {
+                        inter += 1;
+                    }
+                    GameEvent::BrickStruck {
+                        by: crate::events::Striker::Debris,
+                        ..
+                    } if !keystone => debris += 1,
+                    GameEvent::PaddleStruck { .. } => hits += 1,
+                    _ => {}
+                }
+            }
             game.events.clear();
             if game.level != level || game.state == GameState::Victory {
                 direct += tally.0;
                 collapsed += tally.1;
+                struck += hits;
                 println!(
-                    "  seed {seed} level {level}: {:.0} s, {} broken, {} brought down, {} lives",
+                    "  seed {seed} level {level:>2} {:<10} {:>4.0} s, {:>2} broken, {:>2} brought down, \
+                     {inter} intermediate, {debris} debris hits, {hits} paddle hits, {} lives",
+                    crate::levels::STRUCTURES[level - 1].name,
                     game.run_secs() - started,
                     tally.0,
                     tally.1,
@@ -880,6 +892,7 @@ mod tests {
                 );
                 started = game.run_secs();
                 level = game.level;
+                (keystone, inter, debris, hits) = (false, 0, 0, 0);
             }
             tally = (game.level_direct, game.level_collapsed);
             let over = matches!(game.state, GameState::Victory | GameState::GameOver);
@@ -954,6 +967,7 @@ mod tests {
             height: 22.0,
             kind: crate::levels::BrickKind::Normal,
             hits_remaining: 1,
+            points: 0,
         };
         // Nothing falling: the target stands.
         assert_eq!(Autopilot::clear_of_debris(&game, 400.0, 5.0), 400.0);

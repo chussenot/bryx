@@ -451,6 +451,8 @@ impl FxSystem {
                 GameEvent::DebrisLanded { x, y } => self.sparks([x, y], [0.0, -1.0], 4),
                 // One lands on the paddle: more of it, so the strike reads.
                 GameEvent::PaddleStruck { x, y } => self.sparks([x, y], [0.0, -1.0], 9),
+                // One caught in the finale: a few sparks, up.
+                GameEvent::DebrisCaught { x, y, .. } => self.sparks([x, y], [0.0, -1.0], 5),
                 // The keystone lets go: the one structural moment that
                 // gets the blast's light.
                 GameEvent::KeystoneFell { x, y } => self.keystone([x, y]),

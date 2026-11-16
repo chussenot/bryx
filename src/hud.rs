@@ -363,6 +363,7 @@ pub fn layout(frame: &Frame, cue: Option<LifeCue>) -> Layout {
         GameState::Playing => {
             capsule_letters(&mut out, frame.capsules);
             structure_readout(&mut out, game);
+            salvage_readout(&mut out, game);
             if game.ball.attached && !frame.autopilot {
                 serve_prompt(&mut out, game);
             }
@@ -904,15 +905,43 @@ fn structure_readout(out: &mut Layout, game: &Game) {
     if collapse.bricks < COLLAPSE_SHOWN_FROM {
         return;
     }
+    // Its multiplier: the run the shot that set it off started, one step a
+    // brick (`Collapse::multiplier`), so the player sees a cut pay out.
+    let mut spans = vec![
+        span("COLLAPSE ", palette::TEXT_DIM, true),
+        span(collapse.bricks.to_string(), palette::BRICK_KEYSTONE, true),
+    ];
+    if game.features.rally_score {
+        spans.push(span(
+            format!(" ×{}", collapse.reached()),
+            palette::TEXT,
+            true,
+        ));
+    }
+    spans.push(span(format!("  +{}", collapse.score), palette::TEXT, true));
+    out.lines
+        .push(centered(spans, size::VALUE, 0.08, FIELD_CENTER_Y + 96.0));
+}
+
+/// The finale's catch, under the collapse: how many falling bricks the
+/// paddle has caught since the keystone fell, and what they paid.
+fn salvage_readout(out: &mut Layout, game: &Game) {
+    if !game.finale || game.salvage.bricks == 0 {
+        return;
+    }
     out.lines.push(centered(
         vec![
-            span("COLLAPSE ", palette::TEXT_DIM, true),
-            span(collapse.bricks.to_string(), palette::BRICK_KEYSTONE, true),
-            span(format!("  +{}", collapse.score), palette::TEXT, true),
+            span("CAUGHT ", palette::TEXT_DIM, true),
+            span(
+                game.salvage.bricks.to_string(),
+                palette::BRICK_KEYSTONE,
+                true,
+            ),
+            span(format!("  +{}", game.salvage.score), palette::TEXT, true),
         ],
         size::VALUE,
         0.08,
-        FIELD_CENTER_Y + 96.0,
+        FIELD_CENTER_Y + 126.0,
     ));
 }
 
@@ -1821,9 +1850,12 @@ mod tests {
         game.collapse = Collapse {
             bricks: 14,
             score: 3480,
+            waves: 2,
+            base: Some(1),
+            run: 14,
         };
         let text = all_text(&layout(&frame(&game), None));
-        assert!(text.contains("COLLAPSE 14  +3480"), "{text}");
+        assert!(text.contains("COLLAPSE 14 ×10  +3480"), "{text}");
         assert!(text.contains("BROUGHT DOWN 14"), "{text}");
         assert!(
             !text.contains("CUT A BEAM"),
@@ -1841,6 +1873,7 @@ mod tests {
         game.collapse = Collapse {
             bricks: 1,
             score: 20,
+            ..Collapse::default()
         };
         assert!(!all_text(&layout(&frame(&game), None)).contains("COLLAPSE"));
 
