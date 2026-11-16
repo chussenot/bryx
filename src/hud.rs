@@ -819,6 +819,13 @@ fn serve_prompt(out: &mut Layout, game: &Game) {
     // level line and key move down under it: above them, the title would
     // meet the deepest brick row where the 3D camera draws it.
     if let Some(act) = movement::opening(game) {
+        // A structural level's lesson adds its lines under the level line.
+        // Under a title as well, they would push the key onto the paddle
+        // where the 3D camera draws it, so the whole stack starts higher
+        // by their height: the key lands where the campaign's does.
+        if game.level_hint().is_some() {
+            y -= LESSON_LINES;
+        }
         out.lines.push(centered(
             vec![
                 span(format!("{} · ", act.numeral), palette::TEXT_DIM, true),
@@ -850,10 +857,14 @@ fn serve_prompt(out: &mut Layout, game: &Game) {
                 y + 54.0,
             ));
         }
-        y += 46.0;
+        y += LESSON_LINES;
     }
     key_rows(out, y + 30.0, &[(&[&["SPACE"]], "Launch".into())]);
 }
+
+/// How far a structural level's lesson and objective push the serve
+/// prompt's key down.
+const LESSON_LINES: f32 = 46.0;
 
 /// How long a collapse's sum stays up after it ends.
 const COLLAPSE_SUM_SECS: f32 = 1.6;
@@ -1822,6 +1833,30 @@ mod tests {
         );
         game.ball.attached = false;
         assert!(!all_text(&layout(&frame(&game), None)).contains("Launch"));
+    }
+
+    /// Where the serve prompt's key line sits on `level` of `game`.
+    fn launch_y(mut game: Game, level: usize) -> f32 {
+        game.level = level;
+        game.state = GameState::Playing;
+        let layout = layout(&frame(&game), None);
+        let launch = layout.lines.iter().find(|l| l.text() == "Launch");
+        launch.expect("the serve prompt shows its key").y
+    }
+
+    #[test]
+    fn the_key_to_serve_never_sits_lower_than_on_the_campaigns_first_level() {
+        use crate::game::Features;
+        // The campaign's act openings are the tallest prompt the 3D
+        // paddle was checked against; a structural level adds its lesson.
+        let campaign = launch_y(Game::new().with_campaign(), 1);
+        for level in 1..=crate::levels::STRUCTURES.len() {
+            let game = Game::new()
+                .with_structures()
+                .with_features(Features::STRUCTURES);
+            let y = launch_y(game, level);
+            assert!(y <= campaign, "level {level}: key at {y}, below {campaign}");
+        }
     }
 
     #[test]
