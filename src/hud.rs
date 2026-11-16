@@ -363,6 +363,7 @@ pub fn layout(frame: &Frame, cue: Option<LifeCue>) -> Layout {
         GameState::Playing => {
             capsule_letters(&mut out, frame.capsules);
             structure_readout(&mut out, game);
+            salvage_readout(&mut out, game);
             if game.ball.attached && !frame.autopilot {
                 serve_prompt(&mut out, game);
             }
@@ -818,6 +819,13 @@ fn serve_prompt(out: &mut Layout, game: &Game) {
     // level line and key move down under it: above them, the title would
     // meet the deepest brick row where the 3D camera draws it.
     if let Some(act) = movement::opening(game) {
+        // A structural level's lesson adds its lines under the level line.
+        // Under a title as well, they would push the key onto the paddle
+        // where the 3D camera draws it, so the whole stack starts higher
+        // by their height: the key lands where the campaign's does.
+        if game.level_hint().is_some() {
+            y -= LESSON_LINES;
+        }
         out.lines.push(centered(
             vec![
                 span(format!("{} · ", act.numeral), palette::TEXT_DIM, true),
@@ -849,10 +857,14 @@ fn serve_prompt(out: &mut Layout, game: &Game) {
                 y + 54.0,
             ));
         }
-        y += 46.0;
+        y += LESSON_LINES;
     }
     key_rows(out, y + 30.0, &[(&[&["SPACE"]], "Launch".into())]);
 }
+
+/// How far a structural level's lesson and objective push the serve
+/// prompt's key down.
+const LESSON_LINES: f32 = 46.0;
 
 /// How long a collapse's sum stays up after it ends.
 const COLLAPSE_SUM_SECS: f32 = 1.6;
@@ -904,15 +916,43 @@ fn structure_readout(out: &mut Layout, game: &Game) {
     if collapse.bricks < COLLAPSE_SHOWN_FROM {
         return;
     }
+    // Its multiplier: the run the shot that set it off started, one step a
+    // brick (`Collapse::multiplier`), so the player sees a cut pay out.
+    let mut spans = vec![
+        span("COLLAPSE ", palette::TEXT_DIM, true),
+        span(collapse.bricks.to_string(), palette::BRICK_KEYSTONE, true),
+    ];
+    if game.features.rally_score {
+        spans.push(span(
+            format!(" ×{}", collapse.reached()),
+            palette::TEXT,
+            true,
+        ));
+    }
+    spans.push(span(format!("  +{}", collapse.score), palette::TEXT, true));
+    out.lines
+        .push(centered(spans, size::VALUE, 0.08, FIELD_CENTER_Y + 96.0));
+}
+
+/// The finale's catch, under the collapse: how many falling bricks the
+/// paddle has caught since the keystone fell, and what they paid.
+fn salvage_readout(out: &mut Layout, game: &Game) {
+    if !game.finale || game.salvage.bricks == 0 {
+        return;
+    }
     out.lines.push(centered(
         vec![
-            span("COLLAPSE ", palette::TEXT_DIM, true),
-            span(collapse.bricks.to_string(), palette::BRICK_KEYSTONE, true),
-            span(format!("  +{}", collapse.score), palette::TEXT, true),
+            span("CAUGHT ", palette::TEXT_DIM, true),
+            span(
+                game.salvage.bricks.to_string(),
+                palette::BRICK_KEYSTONE,
+                true,
+            ),
+            span(format!("  +{}", game.salvage.score), palette::TEXT, true),
         ],
         size::VALUE,
         0.08,
-        FIELD_CENTER_Y + 96.0,
+        FIELD_CENTER_Y + 126.0,
     ));
 }
 
@@ -1795,6 +1835,30 @@ mod tests {
         assert!(!all_text(&layout(&frame(&game), None)).contains("Launch"));
     }
 
+    /// Where the serve prompt's key line sits on `level` of `game`.
+    fn launch_y(mut game: Game, level: usize) -> f32 {
+        game.level = level;
+        game.state = GameState::Playing;
+        let layout = layout(&frame(&game), None);
+        let launch = layout.lines.iter().find(|l| l.text() == "Launch");
+        launch.expect("the serve prompt shows its key").y
+    }
+
+    #[test]
+    fn the_key_to_serve_never_sits_lower_than_on_the_campaigns_first_level() {
+        use crate::game::Features;
+        // The campaign's act openings are the tallest prompt the 3D
+        // paddle was checked against; a structural level adds its lesson.
+        let campaign = launch_y(Game::new().with_campaign(), 1);
+        for level in 1..=crate::levels::STRUCTURES.len() {
+            let game = Game::new()
+                .with_structures()
+                .with_features(Features::STRUCTURES);
+            let y = launch_y(game, level);
+            assert!(y <= campaign, "level {level}: key at {y}, below {campaign}");
+        }
+    }
+
     #[test]
     fn a_structural_level_names_its_lesson_and_counts_what_came_down() {
         use crate::game::{Collapse, Features};
@@ -1821,9 +1885,12 @@ mod tests {
         game.collapse = Collapse {
             bricks: 14,
             score: 3480,
+            waves: 2,
+            base: Some(1),
+            run: 14,
         };
         let text = all_text(&layout(&frame(&game), None));
-        assert!(text.contains("COLLAPSE 14  +3480"), "{text}");
+        assert!(text.contains("COLLAPSE 14 ×10  +3480"), "{text}");
         assert!(text.contains("BROUGHT DOWN 14"), "{text}");
         assert!(
             !text.contains("CUT A BEAM"),
@@ -1841,6 +1908,7 @@ mod tests {
         game.collapse = Collapse {
             bricks: 1,
             score: 20,
+            ..Collapse::default()
         };
         assert!(!all_text(&layout(&frame(&game), None)).contains("COLLAPSE"));
 

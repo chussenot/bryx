@@ -37,12 +37,13 @@ comes down breaks the one under it.
 3. **Makes the shot.** The paddle's aim is unchanged: where the ball
    lands on it sets the angle. Thin beams and ties are small targets on
    purpose.
-4. **Gets out of the way.** A brick that lands on the paddle holds it
-   still for a moment, with the ball still in flight. The floor shows
-   where bricks are about to land.
+4. **Gets out of the way, or uses it.** A brick that lands on the paddle
+   holds it still for a moment, with the ball still in flight; a brick
+   that lands on the structure cracks or breaks what it hits. A bar shows
+   where each one will land.
 5. **Watches it go.** Orange where it cracks, white where it is about to
    fall, row by row from the bottom. The level ends when the keystone
-   comes down, and nothing that falls after it can touch the paddle.
+   comes down; what falls after it turns gold, and the paddle catches it.
 
 ## The keystone
 

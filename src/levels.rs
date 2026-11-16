@@ -511,9 +511,12 @@ pub struct StructureLevel {
 }
 
 /// The structural levels, in play order: 32, in four acts of eight, as
-/// many as the campaign. The first two are lessons. From the third on, no
-/// single brick brings the keystone down (`game.rs` checks it), so a level
-/// is a sequence of cuts, and which cut comes first matters. Each act ends
+/// many as the campaign. The first act is a curriculum, one idea a level
+/// (docs/design/structures-v2.md): a thin hold, a support, several holds,
+/// where to cut, a falling floor, a dropped weight, a sequence, then all of
+/// them at once. Three of its levels teach a single cut (First fall, Table,
+/// Hammer); in every other level no single brick brings the keystone down
+/// (`game.rs` checks both), so a level is a sequence of cuts. Each act ends
 /// on one of the larger structures: the Crane, the Bridge, the Gantry, the
 /// Citadel.
 ///
@@ -552,18 +555,7 @@ pub const STRUCTURES: &[StructureLevel] = &[
             "...X......X...",
         ],
     },
-    // 3. A bob on two ties. Either one holds it.
-    StructureLevel {
-        name: "Pendulum",
-        hint: "BOTH TIES",
-        grid: &[
-            ".....X.X.....",
-            ".....|.|.....",
-            ".....1K1.....",
-            "......2......",
-        ],
-    },
-    // 4. Hung three ways: a tie above, a row of beams each side. On one, it is too heavy.
+    // 3. Hung three ways: a tie above, a row of beams each side. On one, it is too heavy.
     StructureLevel {
         name: "Chandelier",
         hint: "TWO OF THREE HOLDS",
@@ -574,7 +566,7 @@ pub const STRUCTURES: &[StructureLevel] = &[
             ".....2.2.....",
         ],
     },
-    // 5. A column with the keystone at its head, braced to two posts by a
+    // 4. A column with the keystone at its head, braced to two posts by a
     // beam each side. Cut the column and its top hangs from the braces;
     // cut one brace and the other carries what hangs. Cut the column low
     // and that is more than a beam can hold. Cut it high and both braces
@@ -596,16 +588,40 @@ pub const STRUCTURES: &[StructureLevel] = &[
             "......X......",
         ],
     },
-    // 6. A gate in a steel frame, on three hangers. It stays up on two.
+    // 5. The keystone hangs on two ties in a steel chamber whose floor is a
+    // trapdoor on two beams. Cut a beam and the other cannot carry the door:
+    // it creaks, gives way and drops across the middle of the field, onto the
+    // paddle if it is under it. Then the way in is open, and both ties must
+    // go.
     StructureLevel {
-        name: "Portcullis",
-        hint: "TWO HANGERS",
+        name: "Trapdoor",
+        hint: "STAND CLEAR, THEN GO IN",
         grid: &[
-            "XXXXXXXXXXXXX",
-            "X.S...S...S.X",
-            "X.222222222.X",
-            "X.|.|.|.|.|.X",
-            "X.1111K1111.X",
+            "..XXXXXXXXX..",
+            "..X..|.|..X..",
+            "..X..1K1..X..",
+            "..X.......X..",
+            "..X==222==X..",
+            ".....222.....",
+        ],
+    },
+    // 6. A jib on one mast, the keystone at its tip, and a hammer hung over the
+    // mast. Drop it and it cracks the mast's top, which then carries half:
+    // less than the jib weighs, so it gives way. One precise cut, two
+    // consequences. Knock off the jib's hanging bricks first and it is too
+    // light to break the cracked mast.
+    StructureLevel {
+        name: "Hammer",
+        hint: "DROP THE HAMMER",
+        grid: &[
+            "...X.........",
+            "...|.........",
+            "...2.........",
+            ".............",
+            "...SSSSSK....",
+            "...S....1....",
+            "...S....1....",
+            "...X.........",
         ],
     },
     // 7. A lintel on two piers, all of supports, the keystone at its
@@ -624,29 +640,35 @@ pub const STRUCTURES: &[StructureLevel] = &[
             "...X.....X...",
         ],
     },
-    // 8. A girder on two hangers, the keystone slung under it. One hanger carries it all, just.
+    // 8. The finale of the first act: the Hammer's jib, held at its tip by a
+    // stay as well as by its mast, and a load on the hook over the mast. The
+    // stay cut, the mast carries it all; the load dropped, the mast is
+    // cracked and cannot. Its overhanging end falls to the field first.
     StructureLevel {
         name: "Crane",
-        hint: "CRACK THE LAST HANGER",
+        hint: "LET THE LOAD DO IT",
         grid: &[
-            "...X.....X...",
-            "...S.....S...",
-            "...SSSSSSS...",
-            ".....|.|.....",
-            ".....1K1.....",
+            "...X....X....",
+            "...|....S....",
+            "..222...S....",
+            "........S....",
+            "...SSSSSK....",
+            "...S....1....",
+            "...S....1....",
+            "...X.........",
         ],
     },
     // -- act II ---------------------------------------------------------------
-    // 9. A cage on three ties under a steel bar. The middle tie is behind the others.
+    // 9. A gate in a steel frame, on three hangers. It stays up on two.
     StructureLevel {
-        name: "Lantern",
-        hint: "CUT TWO TIES",
+        name: "Portcullis",
+        hint: "TWO HANGERS",
         grid: &[
-            "....XXXXX....",
-            "....|.|.|....",
-            "....22222....",
-            "....2.K.2....",
-            "....22222....",
+            "XXXXXXXXXXXXX",
+            "X.S...S...S.X",
+            "X.222222222.X",
+            "X.|.|.|.|.|.X",
+            "X.1111K1111.X",
         ],
     },
     // 10. A diamond on a hanger and two rows of beams. Any two gone and it falls.
@@ -729,22 +751,25 @@ pub const STRUCTURES: &[StructureLevel] = &[
             "......X......",
         ],
     },
-    // 16. A slab hung by three ties over a deck that carries the keystone.
-    // The deck sits on steel: no ball reaches it from below, and the two
-    // bricks that hold the keystone stand whatever else goes. The slab,
-    // dropped whole, breaks them both. It stays up on any two ties.
+    // 16. The finale of the second act. A deck on two piers carries the keystone,
+    // and over it hangs a slab on two ties, wider than the deck. Cut a tie
+    // and the slab tears loose: its ends fall to the field and the rest
+    // cracks every deck brick it lands on. A cracked deck cannot hang from
+    // one pier, so one pier then brings it all down: three hits, where the
+    // deck alone takes four. Chip the slab first and it cracks less.
     StructureLevel {
         name: "Bridge",
-        hint: "DROP THE SLAB WHOLE",
+        hint: "CRACK THE DECK, THEN A PIER",
         grid: &[
-            "..X...X...X..",
-            "..|...|...|..",
-            "..111111111..",
-            "..111111111..",
+            "..X.......X..",
+            "..|.......|..",
+            ".22222222222.",
             ".............",
             ".............",
-            ".XSSSSKSSSSX.",
-            ".XXXXX.XXXXX.",
+            "...SSSKSSS...",
+            "...S.....S...",
+            "...S.....S...",
+            "...X.....X...",
         ],
     },
     // -- act III ---------------------------------------------------------------

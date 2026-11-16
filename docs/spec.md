@@ -372,20 +372,28 @@ move.
     standing brick under it, which takes one hit; steel and the keystone
     take none.
   - A falling brick that lands on the paddle shatters on it and holds it
-    still for 0.75 s (a second one starts the time over). Both renderers
-    mark the paddle's line under every brick that will come down on it,
-    while it shakes and while it falls. Once the keystone is down nothing
-    that falls touches the paddle; a lost life and a new level free it.
+    still for 0.75 s (a second one starts the time over). Once the
+    keystone is down a falling brick that lands on the paddle is caught
+    instead, and scores again what it scored coming down. Both renderers
+    mark where every brick that is coming down will land (the paddle's
+    line, or the top of the brick it will hit), while it shakes and while
+    it falls; gold after the keystone. A lost life and a new level free a
+    held paddle.
   - Nothing that strikes the keystone breaks it. When it falls the level
     is won: the balls hold still, every brick left lets go, and the level
     ends when nothing stands or falls. A level also ends when no brick
     but steel is left.
-  - A brick brought down (fallen, crushed, given way) scores twice a
-    broken one, counts in the rally and drops no capsule. The mode always
-    scores by the rally (as `--rally-score` does), has no asteroids and
-    no Break capsule, and keeps its own record.
-  - From the third level on, breaking any one brick never ends the level
-    (tested by playing each brick out).
+  - A collapse is one run, owned by the shot that set it off: its bricks
+    climb the multiplier from that shot's rally, one step each, to x10,
+    whatever the paddle does meanwhile. A brick brought down (fallen,
+    crushed, given way) scores twice its value at that multiplier, counts
+    in the rally and drops no capsule. A brick the keystone's fall
+    releases scores its plain value. The mode always scores by the rally
+    (as `--rally-score` does), has no asteroids and no Break capsule, and
+    keeps its own record.
+  - Breaking any one brick never ends a level, but in the three
+    single-cut lessons (First fall, Table, Hammer) (tested by playing each
+    brick out).
   - All of it is deterministic: no randomness, fixed-tick timings, the
     graph surveyed only when a brick leaves. Every structural level holds
     untouched at its start with nothing over its limit, and has one
