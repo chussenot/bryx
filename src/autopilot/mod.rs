@@ -72,6 +72,12 @@ const FORECAST_TICKS: u32 = 360;
 const CATCH_RETURN_MARGIN: f32 = 0.6;
 
 /// Lane names, in lane order: the keys a model chooses between.
+/// How far ahead the autopilot looks for falling bricks, how much room it
+/// leaves beside one, and how long one takes to pass the paddle.
+const DODGE_SECS: f32 = 1.0;
+const DODGE_MARGIN: f32 = 8.0;
+const DODGE_PASS_SECS: f32 = 0.1;
+
 pub const LANE_NAMES: [&str; LANES] = ["far_left", "left", "center", "right", "far_right"];
 
 /// What the strategist is told about the game at a decision point.
@@ -399,12 +405,72 @@ impl Autopilot {
             }
         }
 
+        target_x = Self::clear_of_debris(game, target_x, hit.time);
         (input.left, input.right) = pilot::steer(paddle.x, target_x, dt);
 
         // A gun fires while Space is held, and every bolt can only help.
         // A glued ball's release owns Space while there is one (above).
         if game.gun.is_some() && fleet().all(|b| b.glued.is_none()) {
             input.space = true;
+        }
+    }
+
+    /// Moves `target_x` out from under any falling brick that would land
+    /// on the paddle there within `DODGE_SECS`, to the nearest clear spot,
+    /// unless that costs the ball: when the paddle could not be back under
+    /// the ball in time, it stays, since a stun where the ball lands still
+    /// returns it.
+    fn clear_of_debris(game: &Game, target_x: f32, ball_secs: f32) -> f32 {
+        let paddle = &game.paddle;
+        let half = paddle.width / 2.0 + DODGE_MARGIN;
+        // Each falling brick the paddle could be under: the stretch of
+        // paddle positions it would hit, and when it gets there.
+        let rules = crate::structure::RULES;
+        let mut spans: Vec<(f32, f32, f32)> = game
+            .fall_zones()
+            .iter()
+            .filter(|zone| zone.falling)
+            .filter_map(|zone| {
+                let d = game.debris.iter().find(|d| d.x == zone.x)?;
+                let drop = paddle.top() - (d.y + d.height / 2.0);
+                // Speeding up to its top speed, then steady.
+                let ramp = ((rules.terminal_speed - d.vy) / rules.gravity).max(0.0);
+                let ramp_drop = d.vy * ramp + 0.5 * rules.gravity * ramp * ramp;
+                let secs = if drop <= ramp_drop {
+                    let v = d.vy;
+                    (-v + (v * v + 2.0 * rules.gravity * drop.max(0.0)).sqrt()) / rules.gravity
+                } else {
+                    ramp + (drop - ramp_drop) / rules.terminal_speed
+                };
+                (secs < DODGE_SECS).then_some((
+                    zone.x - zone.width / 2.0 - half,
+                    zone.x + zone.width / 2.0 + half,
+                    secs,
+                ))
+            })
+            .collect();
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let hit_at = |x: f32| spans.iter().find(|s| s.0 < x && x < s.1).map(|s| s.2);
+        let Some(strike_secs) = hit_at(target_x) else {
+            return target_x;
+        };
+        // The nearest spot outside every stretch, on the field.
+        let (lo, hi) = (paddle.width / 2.0, PLAYFIELD_WIDTH - paddle.width / 2.0);
+        let clear = spans
+            .iter()
+            .flat_map(|s| [s.0, s.1])
+            .filter(|&x| (lo..=hi).contains(&x) && hit_at(x).is_none())
+            .min_by(|a, b| (a - target_x).abs().total_cmp(&(b - target_x).abs()));
+        let Some(clear) = clear else {
+            return target_x;
+        };
+        // Step aside only if there is time to be back for the ball.
+        let back_in_time =
+            pilot::reachable(clear, target_x, ball_secs - strike_secs - DODGE_PASS_SECS);
+        if back_in_time {
+            clear
+        } else {
+            target_x
         }
     }
 
@@ -793,10 +859,16 @@ mod tests {
             let mut level = game.level;
             let mut tally = (0, 0);
             let mut started = 0.0;
+            let mut struck = 0;
             for _ in 0..120 * 600 {
                 let input = autopilot.input(&game, DT);
                 game.tick(&input, DT);
                 autopilot.observe(&game);
+                struck += game
+                    .events
+                    .iter()
+                    .filter(|e| matches!(e, GameEvent::PaddleStruck { .. }))
+                    .count();
                 game.events.clear();
                 if game.level != level || game.state == GameState::Victory {
                     direct += tally.0;
@@ -829,11 +901,51 @@ mod tests {
                 "seed {seed}: {direct} broken, {collapsed} brought down"
             );
             println!(
-                "seed {seed}: {direct} broken, {collapsed} brought down, {:.0} s, score {}",
+                "seed {seed}: {direct} broken, {collapsed} brought down, {:.0} s, score {}, \
+                 struck {struck} times, {} lives",
                 game.run_secs(),
-                game.score
+                game.score,
+                game.lives
             );
         }
+    }
+
+    #[test]
+    fn the_autopilot_steps_out_from_under_a_falling_brick_unless_it_costs_the_ball() {
+        let mut game = Game::with_seed(1)
+            .with_structures()
+            .with_features(crate::game::Features::STRUCTURES);
+        game.state = GameState::Playing;
+        let brick = crate::game::Debris {
+            x: 400.0,
+            y: 300.0,
+            vy: 400.0,
+            width: 52.0,
+            height: 22.0,
+            kind: crate::levels::BrickKind::Normal,
+            hits_remaining: 1,
+        };
+        // Nothing falling: the target stands.
+        assert_eq!(Autopilot::clear_of_debris(&game, 400.0, 5.0), 400.0);
+        game.debris.push(brick);
+        // Under it, with time to spare: out to the nearest clear spot,
+        // a paddle's half width and a margin from the brick.
+        let aside = Autopilot::clear_of_debris(&game, 410.0, 5.0);
+        let reach = game.paddle.width / 2.0 + 26.0;
+        assert!(aside >= 400.0 + reach, "{aside}");
+        assert!(aside < 400.0 + reach + 20.0, "the nearest: {aside}");
+        // Already clear of it: untouched.
+        assert_eq!(Autopilot::clear_of_debris(&game, 600.0, 5.0), 600.0);
+        // The ball lands with it: the paddle stays for the ball.
+        assert_eq!(Autopilot::clear_of_debris(&game, 410.0, 0.5), 410.0);
+        // Too far up to matter yet.
+        game.debris[0].y = -400.0;
+        game.debris[0].vy = 0.0;
+        assert_eq!(Autopilot::clear_of_debris(&game, 410.0, 5.0), 410.0);
+        // The keystone is down: nothing that falls can touch the paddle.
+        game.debris[0].y = 300.0;
+        game.finale = true;
+        assert_eq!(Autopilot::clear_of_debris(&game, 410.0, 5.0), 410.0);
     }
 
     #[test]

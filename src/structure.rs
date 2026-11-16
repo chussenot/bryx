@@ -67,6 +67,8 @@ pub struct Rules {
     pub collapse_factor: u32,
     /// The keystone's value (before the multipliers).
     pub keystone_score: u32,
+    /// How long the paddle cannot move after a falling brick lands on it.
+    pub stun_secs: f32,
 }
 
 pub const RULES: Rules = Rules {
@@ -81,6 +83,7 @@ pub const RULES: Rules = Rules {
     terminal_speed: 640.0,
     collapse_factor: 2,
     keystone_score: 250,
+    stun_secs: 0.75,
 };
 
 // A falling brick moves less than a third of a brick a tick, so it lands

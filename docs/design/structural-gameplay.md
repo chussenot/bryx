@@ -70,6 +70,7 @@ Intact ─▶ Stressed ─▶ Overloaded ─▶ gives way ─▶ destroyed
 | Unstable | No chain to an anchor | Shakes for 0.3 s, then lets go; each row above the lowest 0.05 s later | White-hot, shaking |
 | Falling | Let go | Falls straight down at 1500 px/s², up to 640 px/s | The brick, dimmed |
 | Landed | It meets a standing brick | It shatters; the brick it hit takes one hit | Dust, and the hit brick's crack or break |
+| On the paddle | It meets the paddle, before the keystone is down | It shatters; the paddle cannot move for 0.75 s | Sparks, the paddle in the overload's orange |
 
 The rows of a section let go bottom-up, so it peels away and no falling
 brick overtakes another.
@@ -123,6 +124,29 @@ nothing or over its limit.
 | Asteroids | Off in this mode: the field's moving parts are the bricks coming down. |
 | Stall rule | Unchanged. A keystone hit is not progress, so a ball caught between steel and a keystone is still turned out. |
 
+### The paddle under a collapse
+
+A falling brick that lands on the paddle shatters on it and holds the
+paddle where it stands for `stun_secs` (0.75 s). A second one starts the
+time over; it is not added. The ball is still in flight, so the cost is
+whatever the paddle could not reach meanwhile.
+
+- **It is announced.** Both renderers draw a bar on the paddle's line
+  under every brick that will come down on it (`Game::fall_zones`): pale
+  while the brick still shakes in place, orange once it is in the air. A
+  brick that a standing brick will catch shows none. From losing its hold
+  to reaching the paddle a brick takes over a second.
+- **It ends with the level.** Once the keystone is down nothing that
+  falls touches the paddle: the level is won, the balls hold still, and
+  the collapse is the reward, not a last trap. A lost life and a new
+  level free a held paddle.
+- **It does not score.** No points are lost; time and the ball are.
+
+So it bites on the collapses that are steps, not the one that wins: a
+section cut loose on the way to the keystone, a neck that gave way, a
+roof dropped to crack what is under it. The plan now has a second
+question: where will this land, and where will the ball be then?
+
 ## 5. Scoring
 
 - A brick the ball breaks scores as with rally scoring: its row's value
@@ -155,6 +179,7 @@ back.
 | `SectionUnstable { count, x, y }` | Bricks lost their hold |
 | `BrickFell { rect, kind, nth }` | A brick let go; scored now, no `BrickDestroyedAt` |
 | `DebrisLanded { x, y }` | A falling brick landed; the hit brick's `BrickStruck` (by `Striker::Debris`) follows |
+| `PaddleStruck { x, y }` | A falling brick landed on the paddle |
 | `KeystoneFell { x, y }` | The level is won |
 | `CollapseEnded { bricks, score }` | Nothing cracks, shakes or falls any more |
 
@@ -175,6 +200,7 @@ Played on the existing cues, pitched in the playing track's scale
 | Support lost | A bass note off the root, louder the more it carried |
 | A row lets go | One note, down the scale from its top: a collapse descends where the rally climbs |
 | A falling brick lands | The steel knock, lower |
+| A falling brick lands on the paddle | The steel knock an octave down, loud, with the armor's crack |
 | Keystone falls | The root and its octave: the resolution; the level fanfare follows |
 | A collapse of eight or more ends | A low boom, unless the fanfare ends it |
 
@@ -197,6 +223,9 @@ renderers draw what it returns, so 2D and 3D say the same thing.
 - **Unstable:** white-hot, shaking 1.5 px.
 - **Falling:** the brick at four fifths of its light; in 3D it tips
   forward as it gathers speed.
+- **Where it will land:** a bar on the paddle's line, pale then orange
+  (above).
+- **A struck paddle:** the overload's orange, easing as it comes free.
 - **Reduced motion:** nothing shakes, beats or tips. The glow alone says
   it, steady.
 
@@ -292,9 +321,16 @@ What made them harder, in order of effect:
 - **Difficulty is measured, not felt.** The numbers above say the levels
   ask for more; only the first four have been played by a person. Whether
   the later ones are hard or merely slow is for the playtest.
-- **The autopilot never loses a life here.** It aims exactly and returns
-  every ball, so its times say nothing about the pressure a person is
-  under.
+- **The autopilot rarely loses a life here.** It aims exactly and
+  returns nearly every ball: one life lost over three seeds, after a
+  falling brick held it. Its times say little about the pressure a
+  person is under.
+- **The hazard is occasional for a precise player.** Over the eight
+  levels a paddle that ignores falling bricks is struck 0 to 5 times,
+  and the autopilot, which steps aside, 0 to 3 (three seeds). Most
+  bricks fall with the keystone, when nothing can touch the paddle. A
+  player who chips, and so cuts more sections loose on the way, will meet
+  it more; how much is for the playtest.
 - **Capsules can shortcut a level.** A Super laser, a Metal ball or a
   Meteor rain cuts holds faster than any shot. They drop only from bricks
   the ball breaks, so they are rare here; they are not tuned for this
@@ -314,10 +350,11 @@ What made them harder, in order of effect:
 1. **Human playtest** of the eight levels (`docs/playtest.md`): time to
    the first fall, bricks brought down against broken, whether supports
    are aimed at, and where players stall.
-2. **Pressure, if the playtest asks for it:** falling bricks that the
-   paddle has to stay clear of. Not built: it changes what a collapse
-   costs the player, and should follow evidence that the levels are
-   still too easy once they need a plan.
+2. **More of the hazard, if the playtest asks for it.** Two ways, in
+   this order: levels with more to bring down before the keystone (the
+   hazard as built, met more often); then a reason to get clear of the
+   winning collapse too, as a bonus for an untouched paddle, never as a
+   life.
 3. **Act I rebuilt on structures**, eight levels, teaching one idea each;
    then the other acts (moving anchors for Machines, armored supports for
    the Vault).

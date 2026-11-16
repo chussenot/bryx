@@ -24,6 +24,7 @@ questions: it plays too well, and it hears nothing.
 | **S2** Players aim at what carries, not at what is nearest | Round C: `brought_down` against `bricks`; observer notes on the first shot of Table and Bridge |
 | **S3** A collapse reads: what was hit, what it held, why it fell | Interview after Bridge: "Tell me what just happened" |
 | **S4** The later structures are hard, not slow | Round C: `secs` and `lives_lost` on levels 5 to 8; interview: "What were you trying to do?" |
+| **S5** Falling bricks add pressure, and read as fair | Round C: `paddle_hits` and `lives_lost`; interview: "Did you see it coming?" |
 
 ## Setup
 
@@ -124,6 +125,7 @@ quarter of the level, or a median over twice the condition's median level.
 | `brought_down` | Structures: bricks that fell, were crushed or gave way, among `bricks` |
 | `collapses`, `largest_collapse` | Structures: collapses of two bricks or more, and the largest one |
 | `first_fall_secs` | Structures: seconds from the level's start to the first brick that fell; empty if none did |
+| `paddle_hits` | Structures: times a falling brick landed on the paddle |
 
 ## Decisions to take afterwards
 

@@ -89,10 +89,15 @@ Among the bricks a ball can get at, it aims at, in order:
 The lowest on a tie. It is worked out again each time a brick goes or is
 cracked.
 
+It also steps out from under a falling brick (`clear_of_debris`): when
+one would land on the paddle within a second, it moves to the nearest
+clear spot, unless it could not be back under the ball in time. Then it
+stays: a paddle held where the ball lands still returns it.
+
 Headless, it brings all eight structures down in 3 to 5 minutes of
-play over three seeds, without losing a life, with about two bricks
-fallen for each one broken (`mod.rs`,
-`the_heuristic_brings_down_every_structure`). That is a regression test
+play over three seeds, with about two bricks fallen for each one broken,
+struck by falling bricks 0 to 3 times and losing at most one life
+(`mod.rs`, `the_heuristic_brings_down_every_structure`). That is a regression test
 and a pacing probe, not evidence of how hard a person finds them.
 
 ## Why a decision per rally, and why the game never waits

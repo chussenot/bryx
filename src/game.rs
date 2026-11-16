@@ -490,6 +490,17 @@ pub struct Debris {
     pub hits_remaining: u8,
 }
 
+/// A stretch of the paddle's line a brick is about to come down on
+/// ([`Game::fall_zones`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FallZone {
+    /// Its center and width, the brick's.
+    pub x: f32,
+    pub width: f32,
+    /// The brick is in the air; `false` while it still shakes in place.
+    pub falling: bool,
+}
+
 /// A collapse's tally: the bricks it brought down and what they scored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Collapse {
@@ -1093,6 +1104,9 @@ pub struct Game {
     /// meteorite), and bricks brought down (fallen, crushed, given way).
     pub level_direct: u32,
     pub level_collapsed: u32,
+    /// Seconds the paddle still cannot move: a falling brick landed on it
+    /// (`structure::RULES.stun_secs`). 0 when it is free.
+    pub paddle_stun: f32,
     /// Which post-v1 additions are on.
     pub features: Features,
     /// Bricks broken since a ball last touched the paddle, or since the
@@ -1371,6 +1385,7 @@ impl Game {
             last_collapse: None,
             level_direct: 0,
             level_collapsed: 0,
+            paddle_stun: 0.0,
             features: Features::default(),
             rally: 0,
             best_rally: 0,
@@ -1514,6 +1529,7 @@ impl Game {
             PADDLE_WIDTH
         };
 
+        self.paddle_stun = (self.paddle_stun - dt_fixed).max(0.0);
         self.move_paddle(input, dt_fixed);
         if self.gate_open && self.paddle.left() >= PLAYFIELD_WIDTH {
             self.warp();
@@ -1649,6 +1665,8 @@ impl Game {
 
     fn move_paddle(&mut self, input: &Input, dt_fixed: f32) {
         let dir = match (input.left, input.right) {
+            // Struck by a falling brick: it holds where it is.
+            _ if self.paddle_stun > 0.0 => 0.0,
             (true, false) => -1.0,
             (false, true) => 1.0,
             _ => 0.0,
@@ -2055,6 +2073,23 @@ impl Game {
                 self.crush(index, d.x);
                 return false;
             }
+            // Onto the paddle: it shatters there, and the paddle is held
+            // where it stands. Not once the keystone is down: the level is
+            // won, and nothing that falls after it can cost anything.
+            let paddle = &self.paddle;
+            if !self.finale
+                && bottom >= paddle.top()
+                && top <= paddle.bottom()
+                && right > paddle.left()
+                && left < paddle.right()
+            {
+                self.paddle_stun = rules.stun_secs;
+                self.events.push(GameEvent::PaddleStruck {
+                    x: d.x.clamp(paddle.left(), paddle.right()),
+                    y: paddle.top(),
+                });
+                return false;
+            }
             top <= PLAYFIELD_HEIGHT
         });
         self.debris = debris;
@@ -2074,6 +2109,35 @@ impl Game {
         if self.level_cleared() {
             self.advance_level();
         }
+    }
+
+    /// Where bricks are about to come down on the paddle's line, for the
+    /// warning both renderers draw there: one zone for each brick that has
+    /// lost its hold (`falling: false`, it has not let go yet) or is
+    /// falling, unless a standing brick under it will catch it. None once
+    /// the keystone is down: nothing that falls then touches the paddle.
+    pub fn fall_zones(&self) -> Vec<FallZone> {
+        if !self.structure.is_active() || self.finale {
+            return Vec::new();
+        }
+        let unstable = |b: &Brick| self.structure.state(b).phase == structure::Phase::Unstable;
+        // A standing brick under it, in its way.
+        let caught = |x: f32, y: f32, width: f32| {
+            self.bricks
+                .iter()
+                .any(|b| b.y > y && (b.x - x).abs() < (b.width + width) / 2.0 - 1.0 && !unstable(b))
+        };
+        let loose = self
+            .bricks
+            .iter()
+            .filter(|b| unstable(b))
+            .map(|b| (b.x, b.y, b.width, false));
+        let falling = self.debris.iter().map(|d| (d.x, d.y, d.width, true));
+        loose
+            .chain(falling)
+            .filter(|&(x, y, width, _)| !caught(x, y, width))
+            .map(|(x, _, width, falling)| FallZone { x, width, falling })
+            .collect()
     }
 
     /// A falling brick lands on brick `index`, at `x` on its top face, and
@@ -2412,6 +2476,7 @@ impl Game {
         self.asteroid_timer = ASTEROID_FIRST_SPAWN_SECS;
         self.meteors.clear();
         self.meteors_left = 0;
+        self.paddle_stun = 0.0;
     }
 
     /// Spawns, moves and retires asteroids for one tick of play. Paddle
@@ -6037,6 +6102,170 @@ mod tests {
             })
             .collect();
         assert_eq!(cracks, [1], "the armored brick takes one hit; steel none");
+    }
+
+    fn paddle_struck(e: &GameEvent) -> bool {
+        matches!(e, GameEvent::PaddleStruck { .. })
+    }
+
+    /// A two-brick column hung from an anchor, with the paddle at
+    /// `paddle_x`, or under the column for `None`.
+    fn column_over_the_paddle(paddle_x: Option<f32>) -> Game {
+        let grid = &["X1", "1.", "1."];
+        let mut game = structure_of(grid);
+        let column_x = game.bricks[in_cell(&game, grid, 0, 1)].x;
+        game.paddle.x = paddle_x.unwrap_or(column_x);
+        game
+    }
+
+    /// Cuts the column loose: takes the anchor's hold away.
+    fn cut_loose(game: &mut Game) {
+        game.bricks
+            .retain(|b| !(b.kind == BrickKind::Indestructible));
+        // The brick beside the anchor would fall too: pin it with steel.
+        let pin = game
+            .bricks
+            .iter()
+            .position(|b| b.y < BRICK_GRID_MARGIN_TOP + levels::BRICK_HEIGHT)
+            .expect("the brick beside the anchor");
+        game.bricks[pin].kind = BrickKind::Indestructible;
+        game.bricks.push(decoy_brick());
+        let last = game.bricks.len() - 1;
+        game.bricks[last].x = game.bricks[pin].x + levels::BRICK_WIDTH;
+        game.bricks[last].y = game.bricks[pin].y;
+    }
+
+    #[test]
+    fn a_falling_brick_that_lands_on_the_paddle_holds_it_still_for_a_moment() {
+        let mut game = column_over_the_paddle(None);
+        cut_loose(&mut game);
+        let at = game.paddle.x;
+        let right = held(|i| i.right = true);
+
+        // The paddle is free until the first brick lands.
+        let mut events = Vec::new();
+        while !events.iter().any(paddle_struck) {
+            game.tick(&Input::default(), DT);
+            events.append(&mut game.events);
+            assert!(events.len() < 10_000, "it lands");
+        }
+        assert_eq!(game.paddle_stun, structure::RULES.stun_secs);
+        assert!(events.contains(&GameEvent::PaddleStruck {
+            x: at,
+            y: game.paddle.top()
+        }));
+
+        // Held: it does not move, whatever is pressed. The second brick
+        // lands meanwhile and starts the time over: it is not added.
+        let mut struck = 1;
+        let mut held_ticks = 0;
+        loop {
+            game.tick(&right, DT);
+            struck += count(&game.events, paddle_struck);
+            game.events.clear();
+            if game.paddle_stun <= 0.0 {
+                break;
+            }
+            assert_eq!(game.paddle.x, at, "it holds still");
+            assert!(game.paddle_stun <= structure::RULES.stun_secs);
+            held_ticks += 1;
+        }
+        assert_eq!(struck, 2, "both bricks landed on it");
+        let longest = (structure::RULES.stun_secs * 2.0 / DT) as i32;
+        assert!(
+            held_ticks < longest,
+            "{held_ticks} ticks: refreshed, not added"
+        );
+
+        // Free again.
+        game.tick(&right, DT);
+        assert!(game.paddle.x > at);
+        assert!(game.debris.is_empty(), "they shattered on it");
+    }
+
+    #[test]
+    fn a_falling_brick_misses_a_paddle_that_stepped_aside() {
+        let mut game = column_over_the_paddle(Some(700.0));
+        cut_loose(&mut game);
+        let events = settle(&mut game, 3.0);
+        assert_eq!(count(&events, fell), 2);
+        assert_eq!(count(&events, paddle_struck), 0);
+        assert_eq!(game.paddle_stun, 0.0);
+        assert!(game.debris.is_empty(), "they left through the floor");
+    }
+
+    #[test]
+    fn the_paddle_is_warned_where_bricks_will_land_and_not_where_one_is_caught() {
+        let mut game = column_over_the_paddle(None);
+        assert_eq!(game.fall_zones(), [], "nothing is loose");
+        cut_loose(&mut game);
+        let x = game.paddle.x;
+        game.tick(&Input::default(), DT);
+        // Still shaking in place: warned, and marked as not yet falling.
+        let zones = game.fall_zones();
+        assert_eq!(zones.len(), 2);
+        assert!(zones.iter().all(|z| z.x == x && !z.falling));
+        // In the air.
+        settle(&mut game, 0.6);
+        let zones = game.fall_zones();
+        assert!(
+            !zones.is_empty() && zones.iter().all(|z| z.falling),
+            "{zones:?}"
+        );
+
+        // A standing brick under the column catches it: no warning.
+        let grid = &["X1", "1.", "..", "X."];
+        let mut game = structure_of(grid);
+        let top = game.bricks.iter().map(|b| b.y).fold(f32::MAX, f32::min);
+        let anchor = game
+            .bricks
+            .iter()
+            .position(|b| b.y == top && b.kind == BrickKind::Indestructible)
+            .unwrap();
+        let beside = game
+            .bricks
+            .iter()
+            .position(|b| b.y == top && b.kind == BrickKind::Normal)
+            .unwrap();
+        game.bricks[beside].kind = BrickKind::Indestructible;
+        game.bricks.remove(anchor);
+        game.tick(&Input::default(), DT);
+        assert!(game
+            .bricks
+            .iter()
+            .any(|b| game.structure.state(b).phase == structure::Phase::Unstable));
+        assert_eq!(game.fall_zones(), [], "it will land on the steel");
+    }
+
+    #[test]
+    fn nothing_that_falls_after_the_keystone_touches_the_paddle() {
+        // The first level's block comes down over the middle of the field,
+        // where the paddle waits: the level is won, and it costs nothing.
+        let mut game = structure_game(1);
+        break_cell(&mut game, 2, 3);
+        let mut events = Vec::new();
+        while game.level == 1 {
+            game.tick(&Input::default(), DT);
+            events.append(&mut game.events);
+            if game.finale {
+                assert_eq!(game.fall_zones(), []);
+            }
+            assert!(events.len() < 20_000);
+        }
+        assert_eq!(count(&events, keystone_fell), 1);
+        assert_eq!(count(&events, paddle_struck), 0);
+        assert_eq!(game.paddle_stun, 0.0);
+    }
+
+    #[test]
+    fn a_lost_life_and_a_new_level_free_the_paddle() {
+        let mut game = structure_game(3);
+        game.paddle_stun = 0.5;
+        game.lose_life();
+        assert_eq!(game.paddle_stun, 0.0);
+        game.paddle_stun = 0.5;
+        game.advance_level();
+        assert_eq!(game.paddle_stun, 0.0);
     }
 
     #[test]

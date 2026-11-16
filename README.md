@@ -63,6 +63,10 @@ the rules.
 - **The keystone** (gold, with a diamond) is the objective. Nothing that
   strikes it breaks it. When nothing holds it, it falls, and the level is
   won.
+- **Stay out from under it.** A falling brick that lands on the paddle
+  holds it still for three quarters of a second, with the ball still in
+  flight. A line on the floor shows where bricks are about to land. Once
+  the keystone is down, nothing that falls can touch the paddle.
 
 | Brick | Look | Hits | Carries |
 |---|---|---|---|

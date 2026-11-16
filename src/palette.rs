@@ -220,6 +220,27 @@ pub const STRUCT_UNSTABLE: Rgb = hex(0xFFF1D6);
 /// The mark on a brick that carries others: the weak point.
 pub const STRUCT_BEARING: Rgb = hex(0xFFD9A0);
 
+/// The paddle while it is held by a falling brick's strike: the overload's
+/// orange, strongest at the strike and easing as it comes free. `None`
+/// when it is free.
+pub fn paddle_stun(game: &Game) -> Option<(Rgb, f32)> {
+    (game.paddle_stun > 0.0).then(|| {
+        let left = (game.paddle_stun / RULES.stun_secs).clamp(0.0, 1.0);
+        (STRUCT_OVERLOAD, 0.45 + 0.4 * left)
+    })
+}
+
+/// The warning on the paddle's line under a brick about to come down on
+/// it (`Game::fall_zones`): its color and how much of it. Pale while the
+/// brick still shakes in place, hot once it is in the air.
+pub fn fall_zone(falling: bool) -> (Rgb, f32) {
+    if falling {
+        (STRUCT_OVERLOAD, 0.9)
+    } else {
+        (STRUCT_UNSTABLE, 0.45)
+    }
+}
+
 /// How a brick's structural state shows: one reading of the simulation,
 /// drawn by both renderers, so they say the same thing.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -448,6 +469,24 @@ mod tests {
         assert_ne!(loose.offset[0], 0.0);
         assert!(loose.offset[0].abs() <= UNSTABLE_SHAKE_PX);
         assert_eq!(look(&game, 1, true).offset, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn a_struck_paddle_shows_it_and_eases_as_it_comes_free() {
+        let mut game = Game::new();
+        assert_eq!(paddle_stun(&game), None);
+        game.paddle_stun = RULES.stun_secs;
+        let (color, full) = paddle_stun(&game).unwrap();
+        assert_eq!(color, STRUCT_OVERLOAD);
+        game.paddle_stun = RULES.stun_secs / 10.0;
+        let (_, nearly_free) = paddle_stun(&game).unwrap();
+        assert!(
+            nearly_free < full && nearly_free > 0.4,
+            "{nearly_free} {full}"
+        );
+        // In the air is hotter and stronger than still shaking in place.
+        assert!(fall_zone(true).1 > fall_zone(false).1);
+        assert_ne!(fall_zone(true).0, fall_zone(false).0);
     }
 
     #[test]

@@ -99,6 +99,10 @@ pub enum GameEvent {
     /// A falling brick landed on a standing one, at the middle of the top
     /// face it hit, and shattered there.
     DebrisLanded { x: f32, y: f32 },
+    /// A falling brick landed on the paddle, at the middle of the brick on
+    /// the paddle's top, and shattered there: the paddle cannot move for a
+    /// moment.
+    PaddleStruck { x: f32, y: f32 },
     /// The keystone came down: the level is won, and what is left of it
     /// lets go.
     KeystoneFell { x: f32, y: f32 },

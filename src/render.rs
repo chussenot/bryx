@@ -156,6 +156,9 @@ const MAX_DESTROY_GHOSTS: usize = 16;
 const MAX_DEBRIS: usize = MAX_BRICKS;
 /// A load mark's thickness, in px.
 const BEARING_BAR: f32 = 2.0;
+/// The fall warning: a bar this thick, this far over the paddle's top.
+const FALL_ZONE_BAR: f32 = 3.0;
+const FALL_ZONE_LIFT: f32 = 5.0;
 /// A falling brick's tint: its sprite at four fifths of its light.
 const DEBRIS_TINT: [f32; 4] = [0.8, 0.8, 0.8, 1.0];
 
@@ -170,6 +173,8 @@ const MAX_QUADS: usize = 2
     // A brick, its structural glow and its load mark.
     + MAX_BRICKS * 3
     + MAX_DEBRIS
+    // The warning under each brick about to come down on the paddle.
+    + MAX_BRICKS
     + MAX_DESTROY_GHOSTS
     + MAX_EXTRA_BALLS
     + MAX_POWERUPS
@@ -980,6 +985,7 @@ impl Renderer {
             2 + TRAIL_LEN
                 + curr.bricks.len() * 3
                 + curr.debris.len().min(MAX_DEBRIS)
+                + MAX_BRICKS
                 + destroyed_ghosts.len()
                 + curr.extra_balls.len().min(MAX_EXTRA_BALLS)
                 + curr.powerups.len().min(MAX_POWERUPS)
@@ -1004,7 +1010,10 @@ impl Renderer {
         // A power about to run out pulses its hue; otherwise a gun shows
         // over Glue: it changes what Space does.
         let reduced_motion = hud::reduced_motion();
-        let paddle_tint = if let Some((hue, k)) = palette::paddle_expiry(curr, reduced_motion) {
+        let paddle_tint = if let Some((hue, k)) = palette::paddle_stun(curr) {
+            // Struck by a falling brick: that shows over everything else.
+            paddle_tint(hue, k)
+        } else if let Some((hue, k)) = palette::paddle_expiry(curr, reduced_motion) {
             paddle_tint(hue, PADDLE_TINT_STRENGTH * k)
         } else {
             match curr.gun.map(|g| g.kind) {
@@ -1117,6 +1126,18 @@ impl Renderer {
                 [d.width / 2.0, d.height / 2.0],
                 uv,
                 DEBRIS_TINT,
+            ));
+        }
+        // Where they will land on the paddle's line: a bar just over it,
+        // pale while the brick still shakes in place, hot once it is in
+        // the air. What a standing brick will catch shows none.
+        for zone in curr.fall_zones().iter().take(MAX_BRICKS) {
+            let (color, alpha) = palette::fall_zone(zone.falling);
+            let [r, g, b, _] = color.linear();
+            instances.push(QuadInstance::new(
+                shaken(zone.x, curr.paddle.top() - FALL_ZONE_LIFT),
+                [zone.width / 2.0 - 1.0, FALL_ZONE_BAR / 2.0],
+                [r, g, b, alpha],
             ));
         }
         // Bricks destroyed this frame get one last white "ghost" quad at

@@ -364,6 +364,11 @@ move.
     (1500 px/s², at most 640 px/s). A falling brick shatters on the first
     standing brick under it, which takes one hit; steel and the keystone
     take none.
+  - A falling brick that lands on the paddle shatters on it and holds it
+    still for 0.75 s (a second one starts the time over). Both renderers
+    mark the paddle's line under every brick that will come down on it,
+    while it shakes and while it falls. Once the keystone is down nothing
+    that falls touches the paddle; a lost life and a new level free it.
   - Nothing that strikes the keystone breaks it. When it falls the level
     is won: the balls hold still, every brick left lets go, and the level
     ends when nothing stands or falls. A level also ends when no brick

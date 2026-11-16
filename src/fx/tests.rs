@@ -187,6 +187,12 @@ fn a_collapse_is_drawn_by_the_bricks_and_lit_only_where_it_lands() {
     fx.observe(&game, &[GameEvent::DebrisLanded { x: 300.0, y: 200.0 }]);
     assert_eq!(kinds(&fx), ["sparks"]);
 
+    // On the paddle: more of it, so the strike reads.
+    let mut fx = FxSystem::new(Quality::Full);
+    fx.observe(&game, &[GameEvent::PaddleStruck { x: 300.0, y: 554.0 }]);
+    assert_eq!(kinds(&fx), ["sparks"]);
+    assert!(matches!(fx.effects[0].kind, Kind::Sparks { count: 9, .. }));
+
     // The keystone alone gets the blast's light.
     let mut fx = FxSystem::new(Quality::Full);
     fx.observe(&game, &[GameEvent::KeystoneFell { x: 400.0, y: 137.0 }]);

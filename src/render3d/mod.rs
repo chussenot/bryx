@@ -85,13 +85,16 @@ const TRAIL_LEN: usize = 4;
 /// Falling bricks drawn at once: a whole structure coming down.
 const MAX_DEBRIS: usize = MAX_BRICKS;
 /// A brick, and on a structural level its glow and its load mark.
-const MAX_CUBE_INSTANCES: usize = 1 /* paddle */ + MAX_BRICKS * 3 + MAX_DEBRIS + MAX_POWERUPS + WALL_COUNT + MAX_DESTROY_GHOSTS + MAX_BOLTS
+const MAX_CUBE_INSTANCES: usize = 1 /* paddle */ + MAX_BRICKS * 3 + MAX_DEBRIS + MAX_BRICKS /* fall warnings */ + MAX_POWERUPS + WALL_COUNT + MAX_DESTROY_GHOSTS + MAX_BOLTS
         + 1 /* the Break gate */ + movement::MAX_GROUND_RECTS;
 /// The structural marks sit this far over a brick's top face, and are
 /// this thick: enough to clear it at the camera's angle, no more.
 const STRUCT_MARK_LIFT: f32 = 0.6;
 /// A load mark's depth along the brick's near edge, in px.
 const BEARING_BAR: f32 = 2.0;
+/// The fall warning: a bar this deep, this far ahead of the paddle.
+const FALL_ZONE_BAR: f32 = 3.0;
+const FALL_ZONE_LIFT: f32 = 6.0;
 /// How far a falling brick tips forward at its top speed, in radians.
 const DEBRIS_TILT: f32 = 0.6;
 /// `game.rs` keeps at most 3 asteroids; a defensive bound like the others.
@@ -127,7 +130,10 @@ const PADDLE_TINT_STRENGTH: f32 = 0.45;
 /// effect it carries (a gun shows over Glue: it changes what Space does).
 fn paddle_color(curr: &Game) -> [f32; 4] {
     // A power about to run out pulses its hue (`palette::paddle_expiry`).
-    let tint = if let Some((hue, k)) = palette::paddle_expiry(curr, hud::reduced_motion()) {
+    let tint = if let Some(stun) = palette::paddle_stun(curr) {
+        // Struck by a falling brick: that shows over everything else.
+        Some(stun)
+    } else if let Some((hue, k)) = palette::paddle_expiry(curr, hud::reduced_motion()) {
         Some((hue, PADDLE_TINT_STRENGTH * k))
     } else {
         match curr.gun.map(|g| g.kind) {
@@ -1760,6 +1766,26 @@ impl Renderer3D {
                         .uv_rect(sprite_for_kind(d.kind, d.hits_remaining)),
                 )
                 .with_rotation(Quat::from_rotation_x(tilt).to_array()),
+            );
+        }
+        // Where they will land on the paddle's line, as in 2D: a bar on
+        // the floor just ahead of the paddle, pale while the brick still
+        // shakes in place, hot once it is in the air.
+        for zone in curr.fall_zones().iter().take(MAX_BRICKS) {
+            let (x, z) = world_xz(zone.x, curr.paddle.top() - FALL_ZONE_LIFT);
+            let (color, alpha) = palette::fall_zone(zone.falling);
+            let [r, g, b, _] = color.linear();
+            cube_instances.push(
+                Instance3D::new(
+                    [x, STRUCT_MARK_LIFT, z],
+                    [
+                        zone.width / 2.0 - 1.0,
+                        STRUCT_MARK_LIFT,
+                        FALL_ZONE_BAR / 2.0,
+                    ],
+                    [r, g, b, alpha],
+                )
+                .with_emissive(0.3 * alpha),
             );
         }
 

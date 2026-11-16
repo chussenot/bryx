@@ -449,6 +449,8 @@ impl FxSystem {
                 // A falling brick lands: dust thrown back up from the face
                 // it hit, and that is all. A collapse is many of these.
                 GameEvent::DebrisLanded { x, y } => self.sparks([x, y], [0.0, -1.0], 4),
+                // One lands on the paddle: more of it, so the strike reads.
+                GameEvent::PaddleStruck { x, y } => self.sparks([x, y], [0.0, -1.0], 9),
                 // The keystone lets go: the one structural moment that
                 // gets the blast's light.
                 GameEvent::KeystoneFell { x, y } => self.keystone([x, y]),

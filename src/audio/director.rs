@@ -341,6 +341,7 @@ impl Director {
         // A structure coming down sounds once a tick for each thing it
         // does, however many bricks do it together.
         let (mut creak, mut gave, mut fell, mut thud) = (false, false, false, false);
+        let mut struck = false;
         for (i, event) in events.iter().enumerate() {
             match *event {
                 GameEvent::BrickDestroyedAt { x, .. } => {
@@ -457,6 +458,13 @@ impl Director {
                 GameEvent::DebrisLanded { x, .. } if !thud => {
                     thud = true;
                     out.push(pitched(Cue::Steel, 0.3, x, semitones(-5.0)));
+                }
+                // One lands on the paddle: the knock an octave down, loud,
+                // with the armor's crack under it. Heard at the paddle.
+                GameEvent::PaddleStruck { x, .. } if !struck => {
+                    struck = true;
+                    out.push(pitched(Cue::Steel, 0.75, x, semitones(-12.0)));
+                    out.push(pitched(Cue::Armor, 0.5, x, semitones(-7.0)));
                 }
                 // The keystone comes down: the root and its octave, the
                 // resolution. The level's fanfare follows when the rest has
@@ -712,6 +720,17 @@ mod tests {
             pitches(&out),
             vec![semitones(scale[0]), semitones(scale[0] + 12.0)]
         );
+    }
+
+    #[test]
+    fn a_brick_landing_on_the_paddle_is_heard_there_once_a_tick() {
+        let (mut director, game) = playing();
+        let struck = E::PaddleStruck { x: 120.0, y: 554.0 };
+        let out = director.observe(&game, &[struck, struck]);
+        assert_eq!(cues(&out), [Cue::Steel, Cue::Armor], "one strike heard");
+        assert!(out
+            .iter()
+            .all(|c| matches!(c, Command::Play { pan, pitch, .. } if *pan < 0.0 && *pitch < 1.0)));
     }
 
     #[test]

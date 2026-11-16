@@ -37,7 +37,7 @@ def load(paths):
                 for key in ("run", "level", "lives_lost", "longest_rally", "bricks", "capsules", "score"):
                     row[key] = int(row[key])
                 # The structural columns: absent from logs written before them.
-                for key in ("brought_down", "collapses", "largest_collapse"):
+                for key in ("brought_down", "collapses", "largest_collapse", "paddle_hits"):
                     row[key] = int(row.get(key) or 0)
                 first = row.get("first_fall_secs") or ""
                 row["first_fall_secs"] = float(first) if first else None
@@ -77,7 +77,7 @@ def summarise(name, rows):
         by_level[(r["mode"], r["level"], r["name"])].append(r)
     print(
         f"\n{'level':<28} {'plays':>5} {'secs':>6} {'hunt':>6} {'hunt%':>6} {'lives':>6} {'rally':>6}"
-        f" {'down%':>6} {'falls':>6} {'1st':>5}"
+        f" {'down%':>6} {'falls':>6} {'1st':>5} {'struck':>6}"
     )
     flagged = []
     for (mode, level, lname), plays in sorted(by_level.items()):
@@ -95,9 +95,11 @@ def summarise(name, rows):
         falls = sum(p["collapses"] for p in plays) / len(plays)
         firsts = [p["first_fall_secs"] for p in plays if p["first_fall_secs"] is not None]
         first = f"{median(firsts):>5.0f}" if firsts else f"{'-':>5}"
+        # Times a play a falling brick landed on the paddle.
+        struck = sum(p["paddle_hits"] for p in plays) / len(plays)
         print(
             f"{label:<28} {len(plays):>5} {secs:>6.0f} {hunt:>6.0f} {share:>6.0%} {lives:>6.2f} {rally:>6.0f}"
-            f" {down:>6.0%} {falls:>6.1f} {first}"
+            f" {down:>6.0%} {falls:>6.1f} {first} {struck:>6.1f}"
         )
         if share > HUNT_FLAG:
             flagged.append(f"{label}: the last tenth takes {share:.0%} of the level")
