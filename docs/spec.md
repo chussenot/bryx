@@ -119,8 +119,9 @@ v1's)**, Game Director decisions recorded in `docs/design/director-review.md`:
 - Each act is a movement with its own look (`src/movement.rs`): I ·
   Foundations, II · Structures, III · Machines, IV · The Vault. One row of
   data each, read by both renderers: an accent hue (`palette::ACT_ACCENTS`)
-  for the ceiling rule and the 3D walls, and a ground motif of 2 px lines
-  under the bricks (survey dots, girders, gear teeth along the walls, a
+  for the ceiling rule and the 3D walls, and a ground motif of thin lines
+  under the bricks (scattered stars that twinkle slowly, each at its own
+  pace and still under reduced motion; girders, gear teeth along the walls, a
   vault door's nested frames) that brightens with the rally, from about
   1.3:1 on the field to about 2:1 at the tenth brick, never past the
   dimmest brick and always 7:1 under the ball. The serve prompt of an

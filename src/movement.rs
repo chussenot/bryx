@@ -23,7 +23,8 @@ use crate::palette::{self, Rgb};
 /// The motif under an act's bricks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ground {
-    /// Foundations: the surveyed ground, dots on the grid the bricks sit on.
+    /// Foundations: the open site under a night sky, stars scattered over
+    /// the field that fade in and out, each at its own pace.
     Survey,
     /// Structures: the frame going up, beams and ties.
     Girders,
@@ -81,7 +82,7 @@ const GROUND_FULL_RALLY: u32 = 10;
 /// Line weight of every ground motif, in field pixels.
 const LINE: f32 = 2.0;
 /// The campaign's 14-column brick grid, centered as `game.rs` centers it:
-/// the survey's dots sit on its corners, the girders on its columns.
+/// the girders stand on its columns.
 const GRID_COLUMNS: f32 = 14.0;
 const GRID_LEFT: f32 = (PLAYFIELD_WIDTH - GRID_COLUMNS * BRICK_WIDTH) / 2.0;
 const GRID_TOP: f32 = BRICK_GRID_MARGIN_TOP;
@@ -106,13 +107,64 @@ pub fn opening(game: &Game) -> Option<&'static Movement> {
 /// The ground's color for a rally of `rally` bricks: the field mixed toward
 /// the accent, a little more with every brick of the run up to the top of
 /// the scale. Linear RGBA.
+#[cfg(test)]
 pub fn ground_color(movement: &Movement, rally: u32) -> [f32; 4] {
+    mixed(movement, rally_mix(rally))
+}
+
+fn rally_mix(rally: u32) -> f32 {
     let lit = rally.min(GROUND_FULL_RALLY) as f32 / GROUND_FULL_RALLY as f32;
-    let k = GROUND_REST + (GROUND_LIT - GROUND_REST) * lit;
+    GROUND_REST + (GROUND_LIT - GROUND_REST) * lit
+}
+
+fn mixed(movement: &Movement, k: f32) -> [f32; 4] {
     let field = palette::FIELD.linear();
     let accent = movement.accent.linear();
     let mix = |i: usize| field[i] + k * (accent[i] - field[i]);
     [mix(0), mix(1), mix(2), 1.0]
+}
+
+/// The ground as the renderers draw it: each rect with its color, `secs`
+/// into the run. Every motif is [`ground_color`] throughout but the stars,
+/// which each take their own share of it and twinkle; none ever passes the
+/// full rally's mix, so the contrast the tests hold still holds. A fixed
+/// `secs` (reduced motion) leaves the stars unequal and still.
+pub fn ground_quads(
+    movement: &Movement,
+    rally: u32,
+    secs: f32,
+) -> impl Iterator<Item = ([f32; 4], [f32; 4])> {
+    let (movement, k) = (*movement, rally_mix(rally));
+    ground_rects(movement.ground).into_iter().map(move |rect| {
+        let k = match movement.ground {
+            Ground::Survey => (k * twinkle(rect, secs)).min(GROUND_LIT),
+            _ => k,
+        };
+        (rect, mixed(&movement, k))
+    })
+}
+
+/// A star's share of the ground's mix at `secs`, about 0.2 to 1.9: its own
+/// brightness times a slow sine (a 4 to 10 second period, far under the
+/// 3 Hz DESIGN.md allows), both keyed on its center so the two bars of a
+/// cross move as one.
+fn twinkle([x, y, w, h]: [f32; 4], secs: f32) -> f32 {
+    let seed = ((x + w / 2.0) as u32).wrapping_mul(7919) ^ ((y + h / 2.0) as u32) << 12;
+    let brightness = 0.5 + 0.7 * unit(seed);
+    let rate = 0.6 + unit(seed ^ 1);
+    let phase = std::f32::consts::TAU * unit(seed ^ 2);
+    brightness * (1.0 + 0.6 * (secs * rate + phase).sin())
+}
+
+/// A fixed pseudo-random number in [0, 1) for `n` (the lowbias32 integer
+/// hash): the sky is the same every frame and every run, with no `rand`.
+fn unit(n: u32) -> f32 {
+    let mut x = n ^ (n >> 16);
+    x = x.wrapping_mul(0x7feb_352d);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846c_a68b);
+    x ^= x >> 16;
+    (x >> 8) as f32 / (1u32 << 24) as f32
 }
 
 /// The ground's lines as rects (left, top, width, height) in field pixels,
@@ -121,15 +173,27 @@ pub fn ground_rects(ground: Ground) -> Vec<[f32; 4]> {
     let mut rects = Vec::new();
     match ground {
         Ground::Survey => {
-            // A dot on every corner of the brick grid, every other row,
-            // down to the paddle's lane.
-            let mut y = GRID_TOP;
-            while y < PLAYFIELD_HEIGHT - 40.0 {
-                for i in 0..=14 {
-                    let x = GRID_LEFT + i as f32 * BRICK_WIDTH;
-                    rects.push([x - LINE / 2.0, y - LINE / 2.0, LINE, LINE]);
+            // One star somewhere in each cell of a coarse grid, down to
+            // the paddle's lane: scattered, with no clumps and no lattice.
+            // Most are a pixel or two; one in six is a small cross.
+            const COLS: u32 = 10;
+            const ROWS: u32 = 9;
+            let cell_w = PLAYFIELD_WIDTH / COLS as f32;
+            let cell_h = (PLAYFIELD_HEIGHT - 40.0) / ROWS as f32;
+            for cell in 0..COLS * ROWS {
+                let (col, row) = ((cell % COLS) as f32, (cell / COLS) as f32);
+                let x = ((col + unit(3 * cell)) * cell_w)
+                    .round()
+                    .clamp(3.0, PLAYFIELD_WIDTH - 3.0);
+                let y = ((row + unit(3 * cell + 1)) * cell_h).round().max(3.0);
+                match (unit(3 * cell + 2) * 6.0) as u32 {
+                    0 => {
+                        rects.push([x - 2.5, y - 0.5, 5.0, 1.0]);
+                        rects.push([x - 0.5, y - 2.5, 1.0, 5.0]);
+                    }
+                    1 | 2 => rects.push([x - 1.0, y - 1.0, 2.0, 2.0]),
+                    _ => rects.push([x - 0.5, y - 0.5, 1.0, 1.0]),
                 }
-                y += 2.0 * BRICK_HEIGHT;
             }
         }
         Ground::Girders => {
@@ -285,6 +349,31 @@ mod tests {
                     movement.name
                 );
             }
+        }
+    }
+
+    /// Only the stars twinkle, and no star at any moment is brighter than
+    /// the full rally's ground, the color the contrast test above holds.
+    #[test]
+    fn the_stars_twinkle_under_the_brightest_ground_and_nothing_else_moves() {
+        let lum = |c: [f32; 4]| c[0] + c[1] + c[2];
+        for movement in MOVEMENTS {
+            let cap = lum(ground_color(&movement, GROUND_FULL_RALLY)) + 1e-6;
+            let at = |secs: f32| -> Vec<f32> {
+                ground_quads(&movement, GROUND_FULL_RALLY / 2, secs)
+                    .map(|(_, color)| lum(color))
+                    .collect()
+            };
+            for step in 0..200 {
+                assert!(at(step as f32 * 0.37).iter().all(|&l| l <= cap));
+            }
+            let moves = at(0.0) != at(2.0);
+            assert_eq!(
+                moves,
+                movement.ground == Ground::Survey,
+                "{}",
+                movement.name
+            );
         }
     }
 

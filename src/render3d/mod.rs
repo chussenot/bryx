@@ -1841,9 +1841,14 @@ impl Renderer3D {
         // everything else on the board (`movement.rs`).
         let act = movement::of(curr);
         if let Some(act) = act {
-            let color = movement::ground_color(act, curr.rally);
-            cube_instances.extend(movement::ground_rects(act.ground).into_iter().map(
-                |[x, y, w, h]| {
+            // Reduced motion holds the stars still.
+            let secs = if hud::reduced_motion() {
+                0.0
+            } else {
+                curr.run_secs()
+            };
+            cube_instances.extend(movement::ground_quads(act, curr.rally, secs).map(
+                |([x, y, w, h], color)| {
                     let (wx, wz) = world_xz(x + w / 2.0, y + h / 2.0);
                     Instance3D::new(
                         [wx, GROUND_HALF_HEIGHT, wz],

@@ -998,14 +998,17 @@ impl Renderer {
         // The act's ground, first so everything in the field draws over
         // it, and unshaken: it is the floor (`movement.rs`).
         if let Some(act) = movement::of(curr) {
-            let color = movement::ground_color(act, curr.rally);
-            instances.extend(
-                movement::ground_rects(act.ground)
-                    .into_iter()
-                    .map(|[x, y, w, h]| {
-                        QuadInstance::new([x + w / 2.0, y + h / 2.0], [w / 2.0, h / 2.0], color)
-                    }),
-            );
+            // Reduced motion holds the stars still.
+            let secs = if hud::reduced_motion() {
+                0.0
+            } else {
+                curr.run_secs()
+            };
+            instances.extend(movement::ground_quads(act, curr.rally, secs).map(
+                |([x, y, w, h], color)| {
+                    QuadInstance::new([x + w / 2.0, y + h / 2.0], [w / 2.0, h / 2.0], color)
+                },
+            ));
         }
         // A power about to run out pulses its hue; otherwise a gun shows
         // over Glue: it changes what Space does.
