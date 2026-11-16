@@ -818,7 +818,11 @@ mod tests {
         assert_eq!(hold(&["XK"]), 0);
 
         // The cut names real bricks, and breaking them frees the keystone.
-        let grid = crate::levels::STRUCTURES[5].grid;
+        let grid = crate::levels::STRUCTURES
+            .iter()
+            .find(|level| level.name == "Vault")
+            .expect("the Vault")
+            .grid;
         let (mut bricks, mut structure) = built(grid);
         let mut cut = structure.keystone_holds(&bricks);
         assert!(!cut.is_empty());

@@ -48,7 +48,7 @@ identity.
   ball or fire a laser, Escape or P to pause. On the menu, ↑/↓ choose the
   mode and ←/→ the levelset; Q returns there from the pause and end
   screens.
-- The menu picks what to play: the campaign, Structures (eight levels to
+- The menu picks what to play: the campaign, Structures (32 levels to
   bring down rather than clear: `docs/concept.md`), Classic (v1 rules and levels),
   one of the community LBreakoutHD levelsets fetched into `levels/`, or a
   Shuffle of ten levels from all of them.

@@ -145,7 +145,7 @@ Playing`, with Q leading back to `Menu` (below).
 `docs/design/level-select.md`: the menu lists the modes, one per row, and
 Space plays the highlighted one:
 - Campaign: the 32 named levels, every addition on (the default);
-- Structures: eight levels to bring down (see "Additions after v1");
+- Structures: 32 levels in four acts to bring down (see "Additions after v1");
 - Classic: v1's three levels under v1's rules;
 - Levelset: one fetched LBreakoutHD set, its name on the row, changed with
   ←/→ (A/D);
@@ -348,7 +348,9 @@ move.
   a new level clears them.
 
 - **Structures** (`docs/concept.md`, `docs/design/structural-gameplay.md`):
-  a fifth thing to play, eight built-in levels (`levels::STRUCTURES`, the
+  a fifth thing to play, 32 built-in levels in four acts of eight, like the
+  campaign's, with a Game Over continuing from the act's first level
+  (`levels::STRUCTURES`, the
   menu's Structures row, `--structures`) that are brought down rather than
   cleared. They add four brick characters to the level alphabet: `S`
   support, `=` beam, `|` tie, `K` keystone; `X` is an anchor there. Grids

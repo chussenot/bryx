@@ -844,50 +844,87 @@ mod tests {
         }
     }
 
+    /// Plays the structures with the heuristic alone until it has cleared
+    /// `through` of them (or the run ends, or an hour of play passes), and
+    /// prints each level's time: the pacing table in
+    /// docs/design/structural-gameplay.md. Returns the game, the bricks
+    /// broken and brought down, and the times the paddle was struck.
+    fn bring_down(seed: u64, through: usize) -> (Game, u32, u32, usize) {
+        let mut game = Game::with_seed(seed)
+            .with_structures()
+            .with_features(crate::game::Features::STRUCTURES);
+        let mut autopilot = Autopilot::new(None, 1);
+        let (mut direct, mut collapsed, mut struck) = (0, 0, 0);
+        let mut level = game.level;
+        let mut tally = (0, 0);
+        let mut started = 0.0;
+        for _ in 0..120 * 3600 {
+            let input = autopilot.input(&game, DT);
+            game.tick(&input, DT);
+            autopilot.observe(&game);
+            struck += game
+                .events
+                .iter()
+                .filter(|e| matches!(e, GameEvent::PaddleStruck { .. }))
+                .count();
+            game.events.clear();
+            if game.level != level || game.state == GameState::Victory {
+                direct += tally.0;
+                collapsed += tally.1;
+                println!(
+                    "  seed {seed} level {level}: {:.0} s, {} broken, {} brought down, {} lives",
+                    game.run_secs() - started,
+                    tally.0,
+                    tally.1,
+                    game.lives
+                );
+                started = game.run_secs();
+                level = game.level;
+            }
+            tally = (game.level_direct, game.level_collapsed);
+            let over = matches!(game.state, GameState::Victory | GameState::GameOver);
+            if over || game.level > through {
+                break;
+            }
+        }
+        println!(
+            "seed {seed}: {direct} broken, {collapsed} brought down, {:.0} s, score {}, \
+             struck {struck} times, {} lives",
+            game.run_secs(),
+            game.score,
+            game.lives
+        );
+        (game, direct, collapsed, struck)
+    }
+
     /// The structures are brought down, not cleared: the heuristic finds
-    /// each one's weak point (`find_weak_point`) and wins all eight with
-    /// more bricks fallen than broken. It prints each level's time: the
-    /// pacing table in docs/design/structural-gameplay.md.
+    /// each one's weak point (`find_weak_point`) and gets through the first
+    /// act with more bricks fallen than broken.
     #[test]
+    fn the_heuristic_brings_down_the_first_act_of_structures() {
+        for seed in [1, 7, 42] {
+            let (game, direct, collapsed, _) = bring_down(seed, 8);
+            assert!(
+                game.level > 8,
+                "seed {seed}: {:?} at level {}, {} bricks left, {} lives",
+                game.state,
+                game.level,
+                game.bricks.len(),
+                game.lives,
+            );
+            assert!(
+                collapsed > direct,
+                "seed {seed}: {direct} broken, {collapsed} brought down"
+            );
+        }
+    }
+
+    /// All 32, to the Victory screen: about half an hour of play a seed.
+    #[test]
+    #[ignore = "a benchmark: a few seconds in release, minutes in debug"]
     fn the_heuristic_brings_down_every_structure() {
         for seed in [1, 7, 42] {
-            let mut game = Game::with_seed(seed)
-                .with_structures()
-                .with_features(crate::game::Features::STRUCTURES);
-            let mut autopilot = Autopilot::new(None, 1);
-            let (mut direct, mut collapsed) = (0, 0);
-            let mut level = game.level;
-            let mut tally = (0, 0);
-            let mut started = 0.0;
-            let mut struck = 0;
-            for _ in 0..120 * 600 {
-                let input = autopilot.input(&game, DT);
-                game.tick(&input, DT);
-                autopilot.observe(&game);
-                struck += game
-                    .events
-                    .iter()
-                    .filter(|e| matches!(e, GameEvent::PaddleStruck { .. }))
-                    .count();
-                game.events.clear();
-                if game.level != level || game.state == GameState::Victory {
-                    direct += tally.0;
-                    collapsed += tally.1;
-                    println!(
-                        "  seed {seed} level {level}: {:.0} s, {} broken, {} brought down, {} lives",
-                        game.run_secs() - started,
-                        tally.0,
-                        tally.1,
-                        game.lives
-                    );
-                    started = game.run_secs();
-                    level = game.level;
-                }
-                tally = (game.level_direct, game.level_collapsed);
-                if matches!(game.state, GameState::Victory | GameState::GameOver) {
-                    break;
-                }
-            }
+            let (game, direct, collapsed, _) = bring_down(seed, usize::MAX);
             assert!(
                 won(&game),
                 "seed {seed}: {:?} at level {}, {} bricks left, {} lives",
@@ -899,13 +936,6 @@ mod tests {
             assert!(
                 collapsed > direct,
                 "seed {seed}: {direct} broken, {collapsed} brought down"
-            );
-            println!(
-                "seed {seed}: {direct} broken, {collapsed} brought down, {:.0} s, score {}, \
-                 struck {struck} times, {} lives",
-                game.run_secs(),
-                game.score,
-                game.lives
             );
         }
     }

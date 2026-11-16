@@ -94,11 +94,12 @@ one would land on the paddle within a second, it moves to the nearest
 clear spot, unless it could not be back under the ball in time. Then it
 stays: a paddle held where the ball lands still returns it.
 
-Headless, it brings all eight structures down in 3 to 5 minutes of
-play over three seeds, with about two bricks fallen for each one broken,
-struck by falling bricks 0 to 3 times and losing at most one life
-(`mod.rs`, `the_heuristic_brings_down_every_structure`). That is a regression test
-and a pacing probe, not evidence of how hard a person finds them.
+Headless, it brings all 32 structures down on each of three seeds, in
+24 to 25 minutes of play, with about two bricks fallen for each one
+broken, struck by falling bricks 4 to 11 times (`mod.rs`,
+`the_heuristic_brings_down_every_structure`, ignored by default; the
+first act alone runs with the other tests). That is a regression test and
+a pacing probe, not evidence of how hard a person finds them.
 
 ## Why a decision per rally, and why the game never waits
 

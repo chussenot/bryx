@@ -510,11 +510,18 @@ pub struct StructureLevel {
     pub grid: &'static [&'static str],
 }
 
-/// The structural levels, in play order. Each teaches one idea, and each
-/// asks for more than the one before: from the third on, no single brick
-/// brings the keystone down (`game.rs` checks it), so a level is a
-/// sequence of cuts, and which cut comes first matters.
+/// The structural levels, in play order: 32, in four acts of eight, as
+/// many as the campaign. The first two are lessons. From the third on, no
+/// single brick brings the keystone down (`game.rs` checks it), so a level
+/// is a sequence of cuts, and which cut comes first matters. Each act ends
+/// on one of the larger structures: the Crane, the Bridge, the Gantry, the
+/// Citadel.
+///
+/// All of them are original. The shapes some take (an eye, a flower, a
+/// face, a lattice) are the kind brick-breaker levels have always drawn;
+/// none is copied from another game or from a fetched levelset.
 pub const STRUCTURES: &[StructureLevel] = &[
+    // -- act I ---------------------------------------------------------------
     // 1. Two rows of beams hold a block between two pillars. Cut either
     // row and the other cannot carry the block alone: it cracks, gives
     // way, and the block comes down with the keystone in it. An unaimed
@@ -545,7 +552,29 @@ pub const STRUCTURES: &[StructureLevel] = &[
             "...X......X...",
         ],
     },
-    // 3. A column with the keystone at its head, braced to two posts by a
+    // 3. A bob on two ties. Either one holds it.
+    StructureLevel {
+        name: "Pendulum",
+        hint: "BOTH TIES",
+        grid: &[
+            ".....X.X.....",
+            ".....|.|.....",
+            ".....1K1.....",
+            "......2......",
+        ],
+    },
+    // 4. Hung three ways: a tie above, a row of beams each side. On one, it is too heavy.
+    StructureLevel {
+        name: "Chandelier",
+        hint: "TWO OF THREE HOLDS",
+        grid: &[
+            "......X......",
+            "......|......",
+            "X====1K1====X",
+            ".....2.2.....",
+        ],
+    },
+    // 5. A column with the keystone at its head, braced to two posts by a
     // beam each side. Cut the column and its top hangs from the braces;
     // cut one brace and the other carries what hangs. Cut the column low
     // and that is more than a beam can hold. Cut it high and both braces
@@ -567,7 +596,19 @@ pub const STRUCTURES: &[StructureLevel] = &[
             "......X......",
         ],
     },
-    // 4. A lintel on two piers, all of supports, the keystone at its
+    // 6. A gate in a steel frame, on three hangers. It stays up on two.
+    StructureLevel {
+        name: "Portcullis",
+        hint: "TWO HANGERS",
+        grid: &[
+            "XXXXXXXXXXXXX",
+            "X.S...S...S.X",
+            "X.222222222.X",
+            "X.|.|.|.|.|.X",
+            "X.1111K1111.X",
+        ],
+    },
+    // 7. A lintel on two piers, all of supports, the keystone at its
     // middle. One pier gone, the other holds the lintel out over nothing:
     // a support carries twelve. Crack one that carries it and it holds
     // six.
@@ -583,7 +624,112 @@ pub const STRUCTURES: &[StructureLevel] = &[
             "...X.....X...",
         ],
     },
-    // 5. A slab hung by three ties over a deck that carries the keystone.
+    // 8. A girder on two hangers, the keystone slung under it. One hanger carries it all, just.
+    StructureLevel {
+        name: "Crane",
+        hint: "CRACK THE LAST HANGER",
+        grid: &[
+            "...X.....X...",
+            "...S.....S...",
+            "...SSSSSSS...",
+            ".....|.|.....",
+            ".....1K1.....",
+        ],
+    },
+    // -- act II ---------------------------------------------------------------
+    // 9. A cage on three ties under a steel bar. The middle tie is behind the others.
+    StructureLevel {
+        name: "Lantern",
+        hint: "CUT TWO TIES",
+        grid: &[
+            "....XXXXX....",
+            "....|.|.|....",
+            "....22222....",
+            "....2.K.2....",
+            "....22222....",
+        ],
+    },
+    // 10. A diamond on a hanger and two rows of beams. Any two gone and it falls.
+    StructureLevel {
+        name: "Kite",
+        hint: "CUT THE STRINGS",
+        grid: &[
+            "......X......",
+            "......S......",
+            ".....111.....",
+            "X===11K11===X",
+            ".....111.....",
+            "......1......",
+        ],
+    },
+    // 11. Three spans on four piers under a channel. The keystone is the middle span's.
+    StructureLevel {
+        name: "Aqueduct",
+        hint: "FREE THE MIDDLE SPAN",
+        grid: &[
+            "1111111111111",
+            "S222S2K2S222S",
+            "S...S...S...S",
+            "S...S...S...S",
+            "X...X...X...X",
+        ],
+    },
+    // 12. Two arms with a pan each, and the keystone slung between two ties.
+    StructureLevel {
+        name: "Mobile",
+        hint: "UNDER THE TIES",
+        grid: &[
+            ".....XXX.....",
+            ".....SSS.....",
+            "..1==SSS==1..",
+            "..|..|.|..|..",
+            "..2..1K1..2..",
+        ],
+    },
+    // 13. A ring pinned at both ends and hung by a tie, the keystone its pupil.
+    StructureLevel {
+        name: "Eye",
+        hint: "TWO OF THREE",
+        grid: &[
+            "......X......",
+            "......|......",
+            "....11S11....",
+            "..111.2.111..",
+            "X1S..2K2..S1X",
+            "..111.2.111..",
+            "....11S11....",
+        ],
+    },
+    // 14. Two heaps meeting at the keystone. It is held from every side.
+    StructureLevel {
+        name: "Hourglass",
+        hint: "CLEAR THE WAIST",
+        grid: &[
+            "XX111111111XX",
+            "...1111111...",
+            "....11111....",
+            ".....1K1.....",
+            "....11111....",
+            "...1111111...",
+            "XX111111111XX",
+        ],
+    },
+    // 15. A balance on a post, hung from above too. Either holds it, until it is cracked.
+    StructureLevel {
+        name: "Scales",
+        hint: "ONE HOLD, THEN CRACK IT",
+        grid: &[
+            "......X......",
+            "......S......",
+            "......S......",
+            "......S......",
+            "....1=K=1....",
+            "....2.S.2....",
+            "......S......",
+            "......X......",
+        ],
+    },
+    // 16. A slab hung by three ties over a deck that carries the keystone.
     // The deck sits on steel: no ball reaches it from below, and the two
     // bricks that hold the keystone stand whatever else goes. The slab,
     // dropped whole, breaks them both. It stays up on any two ties.
@@ -601,7 +747,95 @@ pub const STRUCTURES: &[StructureLevel] = &[
             ".XXXXX.XXXXX.",
         ],
     },
-    // 6. The keystone in an armored cage, held four ways by supports: two
+    // -- act III ---------------------------------------------------------------
+    // 17. Three roofs on two posts, the keystone between the posts.
+    StructureLevel {
+        name: "Pagoda",
+        hint: "BOTH SIDES OF IT",
+        grid: &[
+            ".....222.....",
+            ".....S.S.....",
+            "....=S.S=....",
+            ".....SKS.....",
+            "X2222S.S2222X",
+            ".....S.S.....",
+            ".....X.X.....",
+        ],
+    },
+    // 18. Hung from above and standing on its stem. Either carries it, until it is cracked.
+    StructureLevel {
+        name: "Flower",
+        hint: "STEM, THEN CRACK",
+        grid: &[
+            "......X......",
+            "......S......",
+            ".....1S1.....",
+            "....11K11....",
+            ".....1S1.....",
+            "......S......",
+            "......S......",
+            "......X......",
+        ],
+    },
+    // 19. Four arms to four anchors. The last one cannot carry the hub.
+    StructureLevel {
+        name: "Windmill",
+        hint: "THREE OF FOUR",
+        grid: &[
+            "......X......",
+            "......|......",
+            ".....111.....",
+            "X====1K1====X",
+            ".....111.....",
+            "......|......",
+            "......X......",
+        ],
+    },
+    // 20. Two rails, three rungs, and the keystone in the middle one. The way in is up the shaft.
+    StructureLevel {
+        name: "Ladder",
+        hint: "THE MIDDLE RUNG",
+        grid: &[
+            "....X...X....",
+            "....S...S....",
+            "....S===S....",
+            "....S...S....",
+            "....S2K2S....",
+            "....S...S....",
+            "....S===S....",
+            "....S...S....",
+            "....X...X....",
+        ],
+    },
+    // 21. Three posts and their planks, the keystone at the top of the middle one.
+    StructureLevel {
+        name: "Scaffold",
+        hint: "CUT IT LOW",
+        grid: &[
+            "..S===K===S..",
+            "..S...S...S..",
+            "..S===S===S..",
+            "..S...S...S..",
+            "..S===S===S..",
+            "..S...S...S..",
+            "..X...X...X..",
+        ],
+    },
+    // 22. A body on four legs and a thread. The keystone is held above and below, inside.
+    StructureLevel {
+        name: "Spider",
+        hint: "ITS BELLY, THEN ITS BACK",
+        grid: &[
+            "......X......",
+            "......|......",
+            "...2222222...",
+            "...22.K.22...",
+            "...2222222...",
+            "...|.|.|.|...",
+            "...X.X.X.X...",
+        ],
+    },
+    // 23. The keystone in an armored cage, held four ways by supports: two
     // hangers above, a row on each side. Any one of them can carry the
     // cage (its top corners are supports too), unless what is left of the
     // others still hangs on it. A slab
@@ -619,7 +853,7 @@ pub const STRUCTURES: &[StructureLevel] = &[
             "XS111111111SX",
         ],
     },
-    // 7. A box hung under a steel beam by three hangers, the keystone in
+    // 24. A box hung under a steel beam by three hangers, the keystone in
     // it. It stays up on two. The hangers stand in the gap between the
     // beam and the box: the way in is from the sides, and the middle one
     // is behind the other two.
@@ -635,7 +869,97 @@ pub const STRUCTURES: &[StructureLevel] = &[
             "..222222222..",
         ],
     },
-    // 8. The cage again, on a pedestal, braced to the walls, under an
+    // -- act IV ---------------------------------------------------------------
+    // 25. A heavy band on three hangers, the keystone its jewel.
+    StructureLevel {
+        name: "Crown",
+        hint: "TWO OF THREE",
+        grid: &[
+            "..X...X...X..",
+            "..S...S...S..",
+            "..S...S...S..",
+            "..222222222..",
+            "..2222K2222..",
+            "..222222222..",
+        ],
+    },
+    // 26. A face pinned by its eyes. The keystone is behind the mouth.
+    StructureLevel {
+        name: "Mask",
+        hint: "THROUGH THE MOUTH",
+        grid: &[
+            "..222222222..",
+            "..2X22222X2..",
+            "..2222K2222..",
+            "..22.....22..",
+            "..2.11111.2..",
+            "..222222222..",
+        ],
+    },
+    // 27. A disc on three hangers, the keystone under the middle one.
+    StructureLevel {
+        name: "Saucer",
+        hint: "TWO HANGERS",
+        grid: &[
+            "...X..X..X...",
+            "...S..S..S...",
+            "...S22K22S...",
+            "..111111111..",
+            "...|..|..|...",
+            "...1..1..1...",
+        ],
+    },
+    // 28. A net of beams and ties. The keystone hangs on four of them.
+    StructureLevel {
+        name: "Lattice",
+        hint: "FOUR THREADS",
+        grid: &[
+            "X=1=1=1=1=1=X",
+            "..|.|.|.|.|..",
+            "X=1=1=K=1=1=X",
+            "..|.|.|.|.|..",
+            "X=1=1=1=1=1=X",
+        ],
+    },
+    // 29. A deck hinged on the wall and held by two chains, the keystone at its far end.
+    StructureLevel {
+        name: "Drawbridge",
+        hint: "THE CHAIN AND THE DECK",
+        grid: &[
+            "X.....X....X.",
+            "X.....|....S.",
+            "X.....|....S.",
+            "X2222222222K.",
+        ],
+    },
+    // 30. A curtain wall between two towers, the keystone at its heart.
+    StructureLevel {
+        name: "Keep",
+        hint: "BREACH THE CURTAIN",
+        grid: &[
+            "SS.........SS",
+            "SS111121111SS",
+            "SS1112K2111SS",
+            "SS111121111SS",
+            "SS.........SS",
+            "XX.........XX",
+        ],
+    },
+    // 31. The core on four arms in a steel shell. Two slots in the floor are the way in.
+    StructureLevel {
+        name: "Reactor",
+        hint: "IN THROUGH THE SLOTS",
+        grid: &[
+            "XXXXXXXXXXXXX",
+            "X.....S.....X",
+            "X.....S.....X",
+            "XSSSS2K2SSSSX",
+            "X.....S.....X",
+            "X.....S.....X",
+            "XXX.XXXXX.XXX",
+        ],
+    },
+    // 32. The cage again, on a pedestal, braced to the walls, under an
     // armored roof hung by two ties and over a curtain wall. The roof,
     // dropped, cracks everything it lands on. The pedestal (and the
     // support the cage sits on it by) carries the cage alone, and not the

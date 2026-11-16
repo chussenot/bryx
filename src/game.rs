@@ -5566,6 +5566,16 @@ mod tests {
         game
     }
 
+    /// A structural level's number (1-based), by its name: the tests
+    /// below name the level they play, so the set can be reordered.
+    fn lvl(name: &str) -> usize {
+        levels::STRUCTURES
+            .iter()
+            .position(|level| level.name == name)
+            .unwrap_or_else(|| panic!("no structure named {name}"))
+            + 1
+    }
+
     /// A game on a structure of its own, from a grid.
     fn structure_of(grid: &[&str]) -> Game {
         let mut game = structure_game(1);
@@ -5679,8 +5689,11 @@ mod tests {
             let k = keystones[0];
             assert!(
                 !game.bricks.iter().any(|b| {
-                    b.kind == BrickKind::Indestructible
-                        && (b.x - k.x).abs() + (b.y - k.y).abs() < levels::BRICK_WIDTH + 1.0
+                    // In the cell beside it, or over or under it.
+                    let (dx, dy) = ((b.x - k.x).abs(), (b.y - k.y).abs());
+                    let beside = dy < 1.0 && (dx - levels::BRICK_WIDTH).abs() < 1.0;
+                    let over = dx < 1.0 && (dy - levels::BRICK_HEIGHT).abs() < 1.0;
+                    b.kind == BrickKind::Indestructible && (beside || over)
                 }),
                 "{name}: an anchor holds the keystone"
             );
@@ -5762,7 +5775,7 @@ mod tests {
     fn a_tower_cut_low_falls_on_one_brace_and_cut_high_needs_both() {
         // Cut at its foot: the column hangs from the two braces, and it
         // is more than one beam can carry.
-        let mut game = structure_game(3);
+        let mut game = structure_game(lvl("Tower"));
         break_cell(&mut game, 6, 8);
         let events = settle(&mut game, 3.0);
         assert_eq!(count(&events, fell), 0, "two braces hold it");
@@ -5770,16 +5783,16 @@ mod tests {
         let events = settle(&mut game, 5.0);
         assert!(count(&events, overloaded) >= 1);
         assert_eq!(count(&events, keystone_fell), 1);
-        assert_eq!(game.level, 4);
+        assert_eq!(game.level, lvl("Tower") + 1);
 
         // Cut under its head: one brace carries the little that hangs.
-        let mut game = structure_game(3);
+        let mut game = structure_game(lvl("Tower"));
         break_cell(&mut game, 6, 3);
         break_cell(&mut game, 5, 1);
         let events = settle(&mut game, 3.0);
         assert_eq!(count(&events, overloaded), 0);
         assert_eq!(count(&events, keystone_fell), 0);
-        assert_eq!(game.level, 3);
+        assert_eq!(game.level, lvl("Tower"));
         break_cell(&mut game, 7, 1);
         let events = settle(&mut game, 5.0);
         assert_eq!(count(&events, keystone_fell), 1);
@@ -5787,8 +5800,8 @@ mod tests {
 
     #[test]
     fn an_arch_stands_on_one_pier_until_that_pier_is_cracked() {
-        let mut game = structure_game(4);
-        let grid = levels::STRUCTURES[3].grid;
+        let mut game = structure_game(lvl("Arch"));
+        let grid = levels::STRUCTURES[lvl("Arch") - 1].grid;
         break_cell(&mut game, 3, 3);
         let events = settle(&mut game, 3.0);
         assert_eq!(count(&events, overloaded), 0, "a support carries twelve");
@@ -5801,12 +5814,12 @@ mod tests {
         assert!(count(&events, overloaded) >= 1);
         assert_eq!(count(&events, gave_way), 1, "the cracked one gives way");
         assert_eq!(count(&events, keystone_fell), 1);
-        assert_eq!(game.level, 5);
+        assert_eq!(game.level, lvl("Arch") + 1);
     }
 
     #[test]
     fn a_slab_dropped_whole_breaks_the_bridge_and_frees_the_keystone() {
-        let mut game = structure_game(5);
+        let mut game = structure_game(lvl("Bridge"));
         // It stays up on two ties.
         break_cell(&mut game, 2, 1);
         let events = settle(&mut game, 3.0);
@@ -5839,12 +5852,12 @@ mod tests {
             first(&events, cleared),
         ];
         assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
-        assert_eq!(game.level, 6);
+        assert_eq!(game.level, lvl("Bridge") + 1);
     }
 
     #[test]
     fn the_bridge_deck_stands_on_steel_and_only_the_two_bricks_by_the_keystone_hold_it() {
-        let mut game = structure_game(5);
+        let mut game = structure_game(lvl("Bridge"));
         // Any other deck brick can go: each stands on the steel under it.
         for col in [2, 3, 4, 8, 9, 10] {
             break_cell(&mut game, col, 6);
@@ -5852,18 +5865,18 @@ mod tests {
         break_cell(&mut game, 5, 6);
         let events = settle(&mut game, 3.0);
         assert_eq!(count(&events, keystone_fell), 0, "one side still holds");
-        assert_eq!(game.level, 5);
+        assert_eq!(game.level, lvl("Bridge"));
         break_cell(&mut game, 7, 6);
         let events = settle(&mut game, 3.0);
         assert_eq!(count(&events, keystone_fell), 1);
-        assert_eq!(game.level, 6);
+        assert_eq!(game.level, lvl("Bridge") + 1);
     }
 
     #[test]
     fn a_slab_chipped_before_it_drops_leaves_the_deck_standing() {
         // The brief of the level: drop it whole. With its lower row gone
         // over the keystone's two bricks, each takes one hit, not two.
-        let mut game = structure_game(5);
+        let mut game = structure_game(lvl("Bridge"));
         for col in [5, 7] {
             break_cell(&mut game, col, 3);
         }
@@ -5872,12 +5885,12 @@ mod tests {
         let events = settle(&mut game, 5.0);
         assert!(count(&events, landed) >= 10);
         assert_eq!(count(&events, keystone_fell), 0);
-        assert_eq!(game.level, 5, "the deck holds, cracked");
+        assert_eq!(game.level, lvl("Bridge"), "the deck holds, cracked");
     }
 
     #[test]
     fn the_gantry_holds_on_two_hangers_and_falls_on_one() {
-        let mut game = structure_game(7);
+        let mut game = structure_game(lvl("Gantry"));
         break_cell(&mut game, 3, 1);
         let events = settle(&mut game, 3.0);
         assert_eq!(count(&events, overloaded), 0, "two of three hold it");
@@ -5889,13 +5902,13 @@ mod tests {
             "the last hanger, both bricks"
         );
         assert_eq!(count(&events, keystone_fell), 1);
-        assert_eq!(game.level, 8);
+        assert_eq!(game.level, lvl("Gantry") + 1);
     }
 
     #[test]
     fn the_vault_falls_on_one_hanger_only_if_it_was_kept_heavy() {
         // The rows cut by the cage: it is light, and one hanger holds it.
-        let mut game = structure_game(6);
+        let mut game = structure_game(lvl("Vault"));
         break_cell(&mut game, 4, 3);
         break_cell(&mut game, 8, 3);
         break_cell(&mut game, 5, 1);
@@ -5903,16 +5916,16 @@ mod tests {
         assert_eq!(count(&events, overloaded), 0, "a support carries the cage");
         assert_eq!(count(&events, keystone_fell), 0);
         // A crack in that last hanger and it carries half.
-        let grid = levels::STRUCTURES[5].grid;
+        let grid = levels::STRUCTURES[lvl("Vault") - 1].grid;
         let hanger = in_cell(&game, grid, 7, 1);
         game.bricks[hanger].hits_remaining = 1;
         let events = settle(&mut game, 6.0);
         assert_eq!(count(&events, keystone_fell), 1);
-        assert_eq!(game.level, 7);
+        assert_eq!(game.level, lvl("Vault") + 1);
 
         // The rows cut by the walls: what is left of them hangs on the
         // cage, and that is more than one hanger carries.
-        let mut game = structure_game(6);
+        let mut game = structure_game(lvl("Vault"));
         break_cell(&mut game, 1, 3);
         break_cell(&mut game, 11, 3);
         let events = settle(&mut game, 3.0);
@@ -5922,12 +5935,12 @@ mod tests {
         assert_eq!(count(&events, overloaded), 2, "the hanger, and its corner");
         assert_eq!(count(&events, keystone_fell), 1);
         assert!(count(&events, landed) >= 1, "the cage lands on the slab");
-        assert_eq!(game.level, 7);
+        assert_eq!(game.level, lvl("Vault") + 1);
     }
 
     #[test]
     fn the_citadels_roof_cracks_what_it_lands_on_and_its_pedestal_fails_under_the_braces() {
-        let mut game = structure_game(8);
+        let mut game = structure_game(lvl("Citadel"));
         // The roof stays up on one tie only while it is lighter than the
         // tie's limit: cut a tie and it comes down on the cage and braces.
         break_cell(&mut game, 2, 1);
@@ -5989,21 +6002,29 @@ mod tests {
     #[test]
     fn the_structures_get_harder_and_past_the_second_none_falls_to_one_brick() {
         let table: Vec<(u32, bool)> = (1..=levels::STRUCTURES.len()).map(difficulty).collect();
+        let mut wrong = Vec::new();
         for (i, level) in levels::STRUCTURES.iter().enumerate() {
             let (hold, single) = table[i];
             println!(
-                "{} {:<10} hold {hold:>2}  one brick wins: {single}",
+                "{:>2} {:<10} hold {hold:>2}  one brick wins: {single}",
                 i + 1,
                 level.name
             );
-            assert!(hold >= 2, "{}: {hold} hits free the keystone", level.name);
+            if hold < 2 {
+                wrong.push(format!("{}: {hold} hits free the keystone", level.name));
+            }
             // The first two are lessons: one cut and it comes down.
-            assert_eq!(single, i < 2, "{}", level.name);
+            if single != (i < 2) {
+                wrong.push(format!("{}: one brick wins: {single}", level.name));
+            }
         }
-        // The last two ask for the most.
-        let most = table.iter().map(|t| t.0).max().unwrap();
-        assert!(table[6].0 == most || table[7].0 == most, "{table:?}");
-        assert!(table[7].0 >= 6, "{table:?}");
+        assert!(wrong.is_empty(), "{wrong:#?}");
+        // The set ends on more than it starts with: the last act's levels
+        // hold the keystone with more hits than the first act's, and the
+        // finale with six at least.
+        let mean = |act: &[(u32, bool)]| act.iter().map(|t| t.0).sum::<u32>() as f32 / 8.0;
+        assert!(mean(&table[24..]) > mean(&table[..8]), "{table:?}");
+        assert!(table[31].0 >= 6, "{table:?}");
     }
 
     #[test]
@@ -6259,7 +6280,7 @@ mod tests {
 
     #[test]
     fn a_lost_life_and_a_new_level_free_the_paddle() {
-        let mut game = structure_game(3);
+        let mut game = structure_game(lvl("Tower"));
         game.paddle_stun = 0.5;
         game.lose_life();
         assert_eq!(game.paddle_stun, 0.0);
@@ -6299,7 +6320,7 @@ mod tests {
 
     #[test]
     fn a_collapse_goes_on_after_the_ball_is_lost() {
-        let mut game = structure_game(5);
+        let mut game = structure_game(lvl("Bridge"));
         game.ball.attached = false;
         break_cell(&mut game, 2, 1);
         break_cell(&mut game, 10, 1);
@@ -6309,13 +6330,16 @@ mod tests {
         let events = settle(&mut game, 5.0);
         assert_eq!(count(&events, |e| matches!(e, GameEvent::LifeLost)), 1);
         assert_eq!(count(&events, keystone_fell), 1);
-        assert_eq!((game.level, game.lives), (6, STARTING_LIVES - 1));
+        assert_eq!(
+            (game.level, game.lives),
+            (lvl("Bridge") + 1, STARTING_LIVES - 1)
+        );
     }
 
     #[test]
     fn the_same_cut_gives_the_same_collapse() {
         let run = || {
-            let mut game = structure_game(5);
+            let mut game = structure_game(lvl("Bridge"));
             break_cell(&mut game, 2, 1);
             break_cell(&mut game, 10, 1);
             let events = settle(&mut game, 5.0);

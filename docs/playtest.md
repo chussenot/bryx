@@ -60,9 +60,10 @@ target/release/bryx --playtest-log playtest/p1-b.csv --rally-score   # round B
   rallies and answers between rounds rather than their raw scores.
 - **Round C (Structures):** twenty minutes, `--structures`, the same
   "arrow keys move, Space serves" and nothing about structures. Stop
-  after the eighth level or twenty minutes. The autopilot, aiming
-  exactly, takes three to five minutes; what is measured is the first play,
-  and the level each player stalls on.
+  after the first act (eight levels) or twenty minutes. The autopilot,
+  aiming exactly, takes about two minutes for that act and 25 for all 32;
+  what is measured is the first play, and the level each player stalls
+  on.
 - **Record** the screen and the sound, with the player's consent.
 
 ### What the facilitator notes

@@ -46,8 +46,9 @@ cargo run --release -- --structures
 
 ![A beam is cut, the beams on the other side crack, and the block comes down with the keystone](docs/design/structures.png)
 
-Eight levels where the bricks hold each other up, and the point is not to
-clear them but to find what they stand on. The first two come down to one
+Thirty-two levels in four acts, as many as the campaign, where the bricks
+hold each other up, and the point is not to clear them but to find what
+they stand on. The first two come down to one
 cut; after that no single brick does it, and a level is a sequence of
 cuts.
 [`docs/concept.md`](docs/concept.md) is the idea;
