@@ -66,8 +66,12 @@ the rules.
   won.
 - **Stay out from under it.** A falling brick that lands on the paddle
   holds it still for three quarters of a second, with the ball still in
-  flight. A line on the floor shows where bricks are about to land. Once
-  the keystone is down, nothing that falls can touch the paddle.
+  flight. A bar shows where each falling brick will land, on the floor or
+  on the brick it will hit, and brightens as it nears.
+- **Use it.** A falling section cracks or breaks what it lands on, and a
+  cracked support carries half. Drop one part of a structure on another.
+- **Then catch it.** Once the keystone is down, the falling bricks turn
+  gold, and each one the paddle catches scores again.
 
 | Brick | Look | Hits | Carries |
 |---|---|---|---|
@@ -78,8 +82,9 @@ the rules.
 | Keystone | gold, a diamond | none | any |
 | Anchor | graphite, hatched | none | any |
 
-A brick brought down scores twice a brick the ball broke, and counts in the
-rally. The same cut always gives the same collapse: no physics engine, no
+A collapse belongs to the shot that set it off: its bricks score twice a
+brick the ball broke, climbing the rally's multiplier from that shot,
+whatever the paddle does while they fall. The same cut always gives the same collapse: no physics engine, no
 chance.
 
 ## Playtesting

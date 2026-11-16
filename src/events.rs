@@ -110,8 +110,17 @@ pub enum GameEvent {
     /// lets go.
     KeystoneFell { x: f32, y: f32 },
     /// A collapse is over (nothing cracking, shaking or falling any more):
-    /// how many bricks it brought down and what they scored.
-    CollapseEnded { bricks: u32, score: u32 },
+    /// how many bricks it brought down, what they scored, and in how many
+    /// waves (sections that let go one after the other).
+    CollapseEnded { bricks: u32, score: u32, waves: u32 },
+    /// A falling brick landed on the paddle after the keystone fell: it is
+    /// caught, the `nth` of the level's finale, and scores `points` again.
+    DebrisCaught {
+        x: f32,
+        y: f32,
+        nth: u32,
+        points: u32,
+    },
     /// A ball fell below the bottom edge. Fires once per ball, including
     /// during multiball — see `LifeLost` for the life-loss rule.
     BallLost,

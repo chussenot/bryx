@@ -219,6 +219,9 @@ pub enum Verdict {
     GaveWay,
     /// It was unstable long enough: it falls.
     LetGo,
+    /// It falls because the keystone fell ([`Structure::release`]), not
+    /// because of anything that happened to it.
+    Released,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -230,6 +233,8 @@ struct Cell {
     strain: f32,
     overloaded: bool,
     letting_go: bool,
+    /// Let go by the keystone's fall, not by losing its hold.
+    released: bool,
     /// Seconds until it lets go, once `letting_go`.
     fall_in: f32,
 }
@@ -390,7 +395,12 @@ impl Structure {
             if cell.letting_go {
                 cell.fall_in -= dt;
                 if cell.fall_in <= 0.0 {
-                    on(index, Verdict::LetGo);
+                    let verdict = if cell.released {
+                        Verdict::Released
+                    } else {
+                        Verdict::LetGo
+                    };
+                    on(index, verdict);
                 } else {
                     self.pending = true;
                 }
@@ -434,6 +444,7 @@ impl Structure {
         for i in cells {
             let rows_up = (lowest - i / MAX_COLS) as f32;
             self.cells[i].letting_go = true;
+            self.cells[i].released = true;
             self.cells[i].fall_in = RULES.unstable_secs + rows_up * RULES.row_stagger_secs;
             self.pending = true;
         }

@@ -25,6 +25,7 @@ questions: it plays too well, and it hears nothing.
 | **S3** A collapse reads: what was hit, what it held, why it fell | Interview after Bridge: "Tell me what just happened" |
 | **S4** The later structures are hard, not slow | Round C: `secs` and `lives_lost` on levels 5 to 8; interview: "What were you trying to do?" |
 | **S5** Falling bricks add pressure, and read as fair | Round C: `paddle_hits` and `lives_lost`; interview: "Did you see it coming?" |
+| **S6** Players use one collapse to break another on purpose | Round C: `debris_hits` and `support_cuts` on the Hammer, the Crane and the Bridge; interview: "What did the slab do?" |
 
 ## Setup
 
@@ -60,10 +61,11 @@ target/release/bryx --playtest-log playtest/p1-b.csv --rally-score   # round B
   rallies and answers between rounds rather than their raw scores.
 - **Round C (Structures):** twenty minutes, `--structures`, the same
   "arrow keys move, Space serves" and nothing about structures. Stop
-  after the first act (eight levels) or twenty minutes. The autopilot,
-  aiming exactly, takes about two minutes for that act and 25 for all 32;
-  what is measured is the first play, and the level each player stalls
-  on.
+  after the first act (eight levels) or twenty minutes. The first act is
+  the curriculum (`docs/design/structural-gameplay.md`, section 9); the
+  autopilot, aiming exactly, takes about five minutes for it and half an
+  hour for all 32. What is measured is the first play, and the level each
+  player stalls on.
 - **Record** the screen and the sound, with the player's consent.
 
 ### What the facilitator notes
@@ -127,6 +129,11 @@ quarter of the level, or a median over twice the condition's median level.
 | `collapses`, `largest_collapse` | Structures: collapses of two bricks or more, and the largest one |
 | `first_fall_secs` | Structures: seconds from the level's start to the first brick that fell; empty if none did |
 | `paddle_hits` | Structures: times a falling brick landed on the paddle |
+| `support_cuts` | Structures, before the keystone: bricks lost that carried others |
+| `intermediate_collapses` | Structures: collapses of two bricks or more that ended before the keystone fell |
+| `debris_hits` | Structures, before the keystone: hits falling bricks dealt the structure (cracks and breaks) |
+| `caught` | Structures: falling bricks the paddle caught in the finale |
+| `longest_idle_secs` | The longest stretch in play with nothing broken or brought down |
 
 ## Decisions to take afterwards
 

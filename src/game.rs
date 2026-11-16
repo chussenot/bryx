@@ -491,24 +491,100 @@ pub struct Debris {
     pub kind: BrickKind,
     /// The hits it had left when it let go: its color.
     pub hits_remaining: u8,
+    /// What it scored when it let go: what catching it in the finale
+    /// scores again.
+    pub points: u32,
 }
 
-/// A stretch of the paddle's line a brick is about to come down on
-/// ([`Game::fall_zones`]).
+/// Where a brick that is coming down will land ([`Game::fall_zones`]):
+/// on the paddle's line, or on the top of a brick that will catch it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FallZone {
     /// Its center and width, the brick's.
     pub x: f32,
     pub width: f32,
+    /// The top of what it lands on: the paddle's line, or a brick's top.
+    pub y: f32,
+    /// What it lands on.
+    pub on: Landing,
     /// The brick is in the air; `false` while it still shakes in place.
     pub falling: bool,
+    /// Seconds until it lands, about: shaking, then falling.
+    pub secs: f32,
 }
 
-/// A collapse's tally: the bricks it brought down and what they scored.
+/// What a falling brick will land on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Landing {
+    /// The paddle's line, before the keystone has fallen: a threat.
+    Paddle,
+    /// The paddle's line, after it: a brick to catch.
+    Catch,
+    /// A brick it will crack or break.
+    Brick,
+}
+
+/// A collapse's tally: the bricks it brought down, what they scored, and
+/// in how many waves. It is one run, owned by the shot that set it off:
+/// `base` is the rally at that moment, and each brick the structure brings
+/// down climbs one step from there ([`Collapse::multiplier`]), whatever the
+/// paddle does meanwhile. Bricks the keystone's fall releases are counted
+/// but do not climb: that fall is the level ending, not the player's work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Collapse {
     pub bricks: u32,
     pub score: u32,
+    pub waves: u32,
+    /// The rally of the shot that started it; `None` while the structure
+    /// is at rest.
+    pub base: Option<u32>,
+    /// Bricks of it the structure brought down (not released): its run.
+    pub run: u32,
+}
+
+impl Collapse {
+    /// What the next brick it brings down scores times: one step past the
+    /// shot's rally for each brick of its run so far, up to
+    /// [`RALLY_MAX_MULTIPLIER`].
+    pub fn multiplier(&self) -> u32 {
+        (self.base.unwrap_or(0) + self.run + 1).min(RALLY_MAX_MULTIPLIER)
+    }
+
+    /// What the last brick of its run scored times: how far it has climbed.
+    pub fn reached(&self) -> u32 {
+        (self.base.unwrap_or(0) + self.run).clamp(1, RALLY_MAX_MULTIPLIER)
+    }
+}
+
+/// Bricks caught in a level's finale, and what they scored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Salvage {
+    pub bricks: u32,
+    pub score: u32,
+}
+
+/// What breaking one brick would set off, played out with no ball
+/// ([`Game::forecast_break`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BreakForecast {
+    /// Bricks it would bring down: fallen, given way or crushed.
+    pub brought_down: u32,
+    /// Whether the keystone would fall.
+    pub keystone: bool,
+}
+
+/// Seconds a brick falling at `vy` takes to drop `drop` px: speeding up
+/// to its top speed (`structure::RULES`), then steady.
+pub fn fall_secs(vy: f32, drop: f32) -> f32 {
+    let rules = structure::RULES;
+    let drop = drop.max(0.0);
+    let ramp = ((rules.terminal_speed - vy) / rules.gravity).max(0.0);
+    let ramp_drop = vy * ramp + 0.5 * rules.gravity * ramp * ramp;
+    if drop <= ramp_drop {
+        (-vy + (vy * vy + 2.0 * rules.gravity * drop).sqrt()) / rules.gravity
+    } else {
+        ramp + (drop - ramp_drop) / rules.terminal_speed
+    }
 }
 
 /// One brick on the field. `pub` fields for the same reason as
@@ -1107,6 +1183,8 @@ pub struct Game {
     /// meteorite), and bricks brought down (fallen, crushed, given way).
     pub level_direct: u32,
     pub level_collapsed: u32,
+    /// Bricks caught in this level's finale.
+    pub salvage: Salvage,
     /// Seconds the paddle still cannot move: a falling brick landed on it
     /// (`structure::RULES.stun_secs`). 0 when it is free.
     pub paddle_stun: f32,
@@ -1277,6 +1355,7 @@ impl Game {
         self.last_collapse = None;
         self.level_direct = 0;
         self.level_collapsed = 0;
+        self.salvage = Salvage::default();
     }
 
     /// Number of levels in whatever progression is currently active --
@@ -1388,6 +1467,7 @@ impl Game {
             last_collapse: None,
             level_direct: 0,
             level_collapsed: 0,
+            salvage: Salvage::default(),
             paddle_stun: 0.0,
             features: Features::default(),
             rally: 0,
@@ -1822,12 +1902,17 @@ impl Game {
     /// `Features::rally_score` half as much again for an armored brick (it
     /// took two hits), times the rally multiplier.
     fn brick_points(&self, brick: &Brick) -> u32 {
-        let base = if self.features.rally_score && brick.kind == BrickKind::Armored {
+        self.base_points(brick) * self.score_multiplier()
+    }
+
+    /// A brick's value before any multiplier: its row's, and under
+    /// `Features::rally_score` half as much again for an armored brick.
+    fn base_points(&self, brick: &Brick) -> u32 {
+        if self.features.rally_score && brick.kind == BrickKind::Armored {
             brick.score * 3 / 2
         } else {
             brick.score
-        };
-        base * self.score_multiplier()
+        }
     }
 
     /// Scores a destroyed brick, announces it and rolls its power-up drop,
@@ -1998,13 +2083,18 @@ impl Game {
         let rules = structure::RULES;
 
         // What the bricks broken since the last tick changed.
+        let quiet = self.events.len();
         let Self {
             structure,
             bricks,
             events,
+            collapse,
             ..
         } = self;
         structure.survey(bricks, |change| {
+            if matches!(change, Change::Unstable { .. }) {
+                collapse.waves += 1;
+            }
             events.push(match change {
                 Change::SupportLost { at, dependents } => GameEvent::SupportLost {
                     x: at[0],
@@ -2020,7 +2110,7 @@ impl Game {
         });
 
         // Cracking and shaking: which bricks go this tick.
-        let mut going: Vec<(usize, bool)> = Vec::new();
+        let mut going: Vec<(usize, Verdict)> = Vec::new();
         structure.advance(bricks, dt_fixed, |index, verdict| {
             let b = bricks[index];
             match verdict {
@@ -2031,13 +2121,33 @@ impl Game {
                         capacity,
                     });
                 }
-                Verdict::GaveWay => going.push((index, false)),
-                Verdict::LetGo => going.push((index, true)),
+                gone => going.push((index, gone)),
             }
         });
+        // The structure moved: a collapse starts, owned by the shot in
+        // flight (its rally now).
+        let disturbed = self.events[quiet..].iter().any(|e| {
+            matches!(
+                e,
+                GameEvent::SupportLost { .. }
+                    | GameEvent::SectionUnstable { .. }
+                    | GameEvent::BrickOverloaded { .. }
+            )
+        });
+        if disturbed && self.collapse.base.is_none() {
+            self.collapse.base = Some(self.rally);
+        }
         // Highest index first, so each removal leaves the others in place.
-        for &(index, fell) in going.iter().rev() {
+        for &(index, verdict) in going.iter().rev() {
             let brick = self.bricks.remove(index);
+            let fell = verdict != Verdict::GaveWay;
+            if !fell {
+                self.events.push(GameEvent::BrickGaveWay {
+                    rect: [brick.x, brick.y, brick.width, brick.height],
+                });
+            }
+            let released = verdict == Verdict::Released;
+            let points = self.on_brick_brought_down(brick, fell, released);
             if fell {
                 self.debris.push(Debris {
                     x: brick.x,
@@ -2047,13 +2157,9 @@ impl Game {
                     height: brick.height,
                     kind: brick.kind,
                     hits_remaining: brick.hits_remaining,
-                });
-            } else {
-                self.events.push(GameEvent::BrickGaveWay {
-                    rect: [brick.x, brick.y, brick.width, brick.height],
+                    points,
                 });
             }
-            self.on_brick_brought_down(brick, fell);
         }
 
         // Falling: straight down, onto the first standing brick in the way.
@@ -2076,21 +2182,31 @@ impl Game {
                 self.crush(index, d.x);
                 return false;
             }
-            // Onto the paddle: it shatters there, and the paddle is held
-            // where it stands. Not once the keystone is down: the level is
-            // won, and nothing that falls after it can cost anything.
+            // Onto the paddle: before the keystone is down it shatters there
+            // and the paddle is held where it stands; after, the level is won
+            // and the paddle catches it, for its points again.
             let paddle = &self.paddle;
-            if !self.finale
-                && bottom >= paddle.top()
+            if bottom >= paddle.top()
                 && top <= paddle.bottom()
                 && right > paddle.left()
                 && left < paddle.right()
             {
-                self.paddle_stun = rules.stun_secs;
-                self.events.push(GameEvent::PaddleStruck {
-                    x: d.x.clamp(paddle.left(), paddle.right()),
-                    y: paddle.top(),
-                });
+                let x = d.x.clamp(paddle.left(), paddle.right());
+                let y = paddle.top();
+                if self.finale {
+                    self.salvage.bricks += 1;
+                    self.salvage.score += d.points;
+                    self.score += d.points;
+                    self.events.push(GameEvent::DebrisCaught {
+                        x,
+                        y,
+                        nth: self.salvage.bricks,
+                        points: d.points,
+                    });
+                } else {
+                    self.paddle_stun = rules.stun_secs;
+                    self.events.push(GameEvent::PaddleStruck { x, y });
+                }
                 return false;
             }
             top <= PLAYFIELD_HEIGHT
@@ -2098,15 +2214,18 @@ impl Game {
         self.debris = debris;
 
         // The collapse is over once nothing cracks, shakes or falls.
-        if self.collapse.bricks > 0
+        if self.collapse.base.is_some()
             && self.debris.is_empty()
             && self.structure.at_rest(&self.bricks)
         {
-            self.events.push(GameEvent::CollapseEnded {
-                bricks: self.collapse.bricks,
-                score: self.collapse.score,
-            });
-            self.last_collapse = Some((self.collapse, self.run_ticks));
+            if self.collapse.bricks > 0 {
+                self.events.push(GameEvent::CollapseEnded {
+                    bricks: self.collapse.bricks,
+                    score: self.collapse.score,
+                    waves: self.collapse.waves,
+                });
+                self.last_collapse = Some((self.collapse, self.run_ticks));
+            }
             self.collapse = Collapse::default();
         }
         if self.level_cleared() {
@@ -2114,33 +2233,113 @@ impl Game {
         }
     }
 
-    /// Where bricks are about to come down on the paddle's line, for the
-    /// warning both renderers draw there: one zone for each brick that has
-    /// lost its hold (`falling: false`, it has not let go yet) or is
-    /// falling, unless a standing brick under it will catch it. None once
-    /// the keystone is down: nothing that falls then touches the paddle.
+    /// Where every brick that is coming down will land, for the marks both
+    /// renderers draw there: one zone for each brick that has lost its hold
+    /// (`falling: false`, it has not let go yet) or is falling, on the top
+    /// of the first standing brick it will crack or break, or on the
+    /// paddle's line, where it threatens the paddle until the keystone has
+    /// fallen and is there to be caught after. A brick that steel or the
+    /// keystone will stop shows none: it will do nothing. Zones with the
+    /// same place and target are one, the soonest.
     pub fn fall_zones(&self) -> Vec<FallZone> {
-        if !self.structure.is_active() || self.finale {
+        if !self.structure.is_active() {
             return Vec::new();
         }
+        let rules = structure::RULES;
         let unstable = |b: &Brick| self.structure.state(b).phase == structure::Phase::Unstable;
-        // A standing brick under it, in its way.
-        let caught = |x: f32, y: f32, width: f32| {
+        // The first standing brick under it, in its way.
+        let catcher = |x: f32, y: f32, width: f32| {
             self.bricks
                 .iter()
-                .any(|b| b.y > y && (b.x - x).abs() < (b.width + width) / 2.0 - 1.0 && !unstable(b))
+                .filter(|b| {
+                    b.y > y && (b.x - x).abs() < (b.width + width) / 2.0 - 1.0 && !unstable(b)
+                })
+                .min_by(|a, b| a.y.total_cmp(&b.y))
         };
-        let loose = self
-            .bricks
+        let loose = self.bricks.iter().filter(|b| unstable(b)).map(|b| {
+            let shake = (1.0 - self.structure.state(b).progress) * rules.unstable_secs;
+            (b.x, b.y + b.height / 2.0, b.width, 0.0, shake, false)
+        });
+        let falling = self
+            .debris
             .iter()
-            .filter(|b| unstable(b))
-            .map(|b| (b.x, b.y, b.width, false));
-        let falling = self.debris.iter().map(|d| (d.x, d.y, d.width, true));
-        loose
-            .chain(falling)
-            .filter(|&(x, y, width, _)| !caught(x, y, width))
-            .map(|(x, _, width, falling)| FallZone { x, width, falling })
-            .collect()
+            .map(|d| (d.x, d.y + d.height / 2.0, d.width, d.vy, 0.0, true));
+        let mut zones: Vec<FallZone> = Vec::new();
+        for (x, bottom, width, vy, shake, falling) in loose.chain(falling) {
+            let (y, on) = match catcher(x, bottom, width) {
+                Some(b) if b.kind.breakable() => (b.top(), Landing::Brick),
+                Some(_) => continue,
+                None if self.finale => (self.paddle.top(), Landing::Catch),
+                None => (self.paddle.top(), Landing::Paddle),
+            };
+            let zone = FallZone {
+                x,
+                width,
+                y,
+                on,
+                falling,
+                secs: shake + fall_secs(vy, y - bottom),
+            };
+            match zones.iter_mut().find(|z| z.x == x && z.y == y) {
+                Some(same) if zone.secs < same.secs => *same = zone,
+                Some(_) => {}
+                None => zones.push(zone),
+            }
+        }
+        zones
+    }
+
+    /// What breaking `bricks[index]` would set off, played out on a copy of
+    /// the game for up to `secs`, with the ball held on the paddle: the
+    /// overloads, the falls, what the falling bricks break, and whether the
+    /// keystone comes down. Exact, since the copy runs the same rules; for
+    /// the autopilot.
+    pub fn forecast_break(&self, index: usize, secs: f32) -> BreakForecast {
+        let mut copy = self.structural_copy();
+        let before = copy.level_collapsed;
+        let brick = copy.bricks.remove(index);
+        copy.on_brick_destroyed(brick);
+        for _ in 0..(secs * TICK_RATE) as usize {
+            copy.update_structure(1.0 / TICK_RATE);
+            copy.events.clear();
+            if copy.finale || copy.level != self.level {
+                return BreakForecast {
+                    brought_down: copy.level_collapsed - before,
+                    keystone: true,
+                };
+            }
+            if copy.collapse.base.is_none() && copy.debris.is_empty() {
+                break;
+            }
+        }
+        BreakForecast {
+            brought_down: copy.level_collapsed - before,
+            keystone: false,
+        }
+    }
+
+    /// A copy of what the structure's rules read and write, and nothing
+    /// else: no ball, no capsules, and fixed random streams of its own (the
+    /// game's are never cloned, so a forecast cannot draw from them).
+    fn structural_copy(&self) -> Game {
+        let mut copy = Game::new_with_rng(
+            StdRng::seed_from_u64(0),
+            StdRng::seed_from_u64(1),
+            StdRng::seed_from_u64(2),
+        );
+        copy.state = GameState::Playing;
+        copy.features = self.features;
+        copy.built_in = self.built_in;
+        copy.level = self.level;
+        copy.bricks = self.bricks.clone();
+        copy.structure = self.structure.clone();
+        copy.debris = self.debris.clone();
+        copy.collapse = self.collapse;
+        copy.finale = self.finale;
+        copy.rally = self.rally;
+        copy.level_collapsed = self.level_collapsed;
+        copy.paddle = self.paddle;
+        copy
     }
 
     /// A falling brick lands on brick `index`, at `x` on its top face, and
@@ -2159,7 +2358,8 @@ impl Game {
             .push(Contact::from_blast(brick, [x, top - 1.0]).event(Striker::Debris));
         if brick.hits_remaining == 0 {
             self.bricks.remove(index);
-            self.on_brick_brought_down(brick, false);
+            // After the keystone, all that comes down is the level ending.
+            self.on_brick_brought_down(brick, false, self.finale);
         }
     }
 
@@ -2170,8 +2370,22 @@ impl Game {
     ///
     /// The keystone's fall wins the level: the balls stop and everything
     /// still standing lets go.
-    fn on_brick_brought_down(&mut self, brick: Brick, fell: bool) {
-        let points = self.brick_points(&brick) * structure::RULES.collapse_factor;
+    fn on_brick_brought_down(&mut self, brick: Brick, fell: bool, released: bool) -> u32 {
+        // The collapse's own run, not the rally of whatever shot is in
+        // flight now (see `Collapse`). A brick the keystone's fall released
+        // scores its plain value: that is the level ending, and leaving the
+        // structure up for it must never pay more than bringing it down.
+        let points = if released {
+            self.base_points(&brick)
+        } else {
+            let multiplier = if self.features.rally_score {
+                self.collapse.multiplier()
+            } else {
+                1
+            };
+            self.collapse.run += 1;
+            self.base_points(&brick) * multiplier * structure::RULES.collapse_factor
+        };
         self.score += points;
         self.rally += 1;
         self.best_rally = self.best_rally.max(self.rally);
@@ -2203,6 +2417,7 @@ impl Game {
             });
             self.structure.release(&self.bricks);
         }
+        points
     }
 
     /// All destructible bricks on the current level are gone: load the
@@ -5846,75 +6061,212 @@ mod tests {
         assert_eq!(game.level, lvl("Arch") + 1);
     }
 
-    #[test]
-    fn a_slab_dropped_whole_breaks_the_bridge_and_frees_the_keystone() {
-        let mut game = structure_game(lvl("Bridge"));
-        // It stays up on two ties.
-        break_cell(&mut game, 2, 1);
-        let events = settle(&mut game, 3.0);
-        assert_eq!(count(&events, fell), 0);
-        assert_eq!(count(&events, overloaded), 0);
+    /// One hit on the brick in cell (`col`, `row`) of the level's grid, as
+    /// a ball's: it breaks only when it has no hits left.
+    fn hit_cell(game: &mut Game, col: usize, row: usize) {
+        let grid = levels::STRUCTURES[game.level - 1].grid;
+        let index = in_cell(game, grid, col, row);
+        let brick = &mut game.bricks[index];
+        brick.hits_remaining -= 1;
+        if brick.hits_remaining == 0 {
+            let brick = game.bricks.remove(index);
+            game.on_brick_destroyed(brick);
+        }
+        game.events.clear();
+        game.powerups.clear();
+    }
 
-        // On one, the tie and the brick under it give way; the slab lands
-        // on the deck and breaks it; the keystone, held by nothing, falls.
-        break_cell(&mut game, 10, 1);
-        let events = settle(&mut game, 5.0);
-        assert!(count(&events, overloaded) >= 1);
-        assert!(count(&events, landed) >= 16, "{}", count(&events, landed));
-        let crushed = count(&events, |e| {
-            matches!(
-                e,
-                GameEvent::BrickStruck {
-                    kind: BrickKind::Support,
-                    hits_left: 0,
-                    by: Striker::Debris,
-                    ..
-                }
-            )
-        });
-        assert!(crushed >= 7, "{crushed} deck bricks broken by the slab");
-        let order = [
-            first(&events, gave_way),
-            first(&events, fell),
-            first(&events, landed),
-            first(&events, keystone_fell),
-            first(&events, cleared),
-        ];
-        assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
-        assert_eq!(game.level, lvl("Bridge") + 1);
+    /// Plays `secs` with the paddle held at `x`.
+    fn settle_at(game: &mut Game, x: f32, secs: f32) -> Vec<GameEvent> {
+        let mut events = Vec::new();
+        for _ in 0..(secs / DT) as usize {
+            game.paddle.x = x;
+            game.tick(&Input::default(), DT);
+            events.append(&mut game.events);
+        }
+        events
+    }
+
+    fn cracked_by_debris(e: &GameEvent) -> bool {
+        matches!(
+            e,
+            GameEvent::BrickStruck {
+                by: Striker::Debris,
+                hits_left: 1..,
+                ..
+            }
+        )
     }
 
     #[test]
-    fn the_bridge_deck_stands_on_steel_and_only_the_two_bricks_by_the_keystone_hold_it() {
+    fn the_bridge_slab_tears_loose_cracks_the_deck_and_rains_on_the_paddle() {
+        // The paddle under the slab's left end, which overhangs the deck.
         let mut game = structure_game(lvl("Bridge"));
-        // Any other deck brick can go: each stands on the steel under it.
-        for col in [2, 3, 4, 8, 9, 10] {
-            break_cell(&mut game, col, 6);
-        }
-        break_cell(&mut game, 5, 6);
-        let events = settle(&mut game, 3.0);
-        assert_eq!(count(&events, keystone_fell), 0, "one side still holds");
+        hit_cell(&mut game, 2, 1);
+        let events = settle_at(&mut game, 140.0, 4.0);
+        // The other tie, and the slab bricks by it, cannot hold the slab:
+        // they give way, and the rest falls.
+        assert!(count(&events, gave_way) >= 2);
+        assert!(count(&events, fell) >= 7);
+        assert!(
+            count(&events, cracked_by_debris) >= 4,
+            "the deck is cracked"
+        );
+        assert!(
+            count(&events, paddle_struck) >= 1,
+            "its end falls on the paddle"
+        );
+        assert_eq!(count(&events, keystone_fell), 0, "the deck still stands");
         assert_eq!(game.level, lvl("Bridge"));
-        break_cell(&mut game, 7, 6);
-        let events = settle(&mut game, 3.0);
+
+        // Now one pier is enough: the cracked deck cannot hang from the other.
+        hit_cell(&mut game, 9, 7);
+        hit_cell(&mut game, 9, 7);
+        let events = settle(&mut game, 5.0);
+        assert!(count(&events, overloaded) >= 1);
         assert_eq!(count(&events, keystone_fell), 1);
         assert_eq!(game.level, lvl("Bridge") + 1);
     }
 
     #[test]
-    fn a_slab_chipped_before_it_drops_leaves_the_deck_standing() {
-        // The brief of the level: drop it whole. With its lower row gone
-        // over the keystone's two bricks, each takes one hit, not two.
+    fn an_uncracked_bridge_hangs_from_one_pier_and_the_slab_finishes_it() {
+        // The other order: a pier first holds, then the slab's drop cracks
+        // the deck that now hangs from one pier, and it gives way.
         let mut game = structure_game(lvl("Bridge"));
-        for col in [5, 7] {
-            break_cell(&mut game, col, 3);
-        }
-        break_cell(&mut game, 2, 1);
-        break_cell(&mut game, 10, 1);
+        hit_cell(&mut game, 9, 7);
+        hit_cell(&mut game, 9, 7);
+        let events = settle(&mut game, 3.0);
+        assert_eq!(count(&events, fell), 0, "one intact pier carries it");
+        hit_cell(&mut game, 2, 1);
         let events = settle(&mut game, 5.0);
-        assert!(count(&events, landed) >= 10);
-        assert_eq!(count(&events, keystone_fell), 0);
-        assert_eq!(game.level, lvl("Bridge"), "the deck holds, cracked");
+        assert!(
+            count(&events, unstable) >= 2,
+            "two waves: the slab, the deck"
+        );
+        assert_eq!(count(&events, keystone_fell), 1);
+        assert_eq!(game.level, lvl("Bridge") + 1);
+
+        // Without the slab, one pier is not enough, and the deck's sides
+        // take two hits each.
+        let mut game = structure_game(lvl("Bridge"));
+        for (col, row) in [(3, 7), (3, 7), (5, 5)] {
+            hit_cell(&mut game, col, row);
+        }
+        settle(&mut game, 3.0);
+        assert_eq!(game.level, lvl("Bridge"));
+    }
+
+    #[test]
+    fn a_slab_chipped_where_it_mattered_cracks_less_and_the_deck_holds() {
+        // Two slab bricks over the deck's left end broken before the drop:
+        // the deck by the left pier is left uncracked, so cutting the right
+        // pier no longer brings it down. Cutting the left one still does.
+        let chipped = || {
+            let mut game = structure_game(lvl("Bridge"));
+            for col in [3, 4] {
+                hit_cell(&mut game, col, 2);
+                hit_cell(&mut game, col, 2);
+            }
+            hit_cell(&mut game, 2, 1);
+            settle(&mut game, 4.0);
+            game
+        };
+        let mut game = chipped();
+        hit_cell(&mut game, 9, 7);
+        hit_cell(&mut game, 9, 7);
+        let events = settle(&mut game, 4.0);
+        assert_eq!(count(&events, keystone_fell), 0, "the uncracked end holds");
+        assert_eq!(game.level, lvl("Bridge"));
+
+        let mut game = chipped();
+        hit_cell(&mut game, 3, 7);
+        hit_cell(&mut game, 3, 7);
+        let events = settle(&mut game, 5.0);
+        assert_eq!(count(&events, keystone_fell), 1);
+    }
+
+    #[test]
+    fn the_trapdoor_drops_across_the_field_and_then_the_keystone_needs_both_ties() {
+        // Cut a beam: the floor creaks, gives way and falls on a paddle
+        // under it, and misses one that stepped aside.
+        for (x, hits) in [(400.0, true), (100.0, false)] {
+            let mut game = structure_game(lvl("Trapdoor"));
+            hit_cell(&mut game, 3, 4);
+            let events = settle_at(&mut game, x, 4.0);
+            assert!(count(&events, overloaded) >= 1);
+            assert!(count(&events, fell) >= 6, "the door falls");
+            assert_eq!(count(&events, paddle_struck) > 0, hits, "paddle at {x}");
+            assert_eq!(count(&events, keystone_fell), 0);
+
+            // Inside, the keystone hangs on two ties: one is not enough.
+            hit_cell(&mut game, 5, 1);
+            let events = settle(&mut game, 3.0);
+            assert_eq!(count(&events, keystone_fell), 0);
+            hit_cell(&mut game, 7, 1);
+            let events = settle(&mut game, 3.0);
+            assert_eq!(count(&events, keystone_fell), 1);
+        }
+    }
+
+    #[test]
+    fn the_hammer_cracks_the_mast_and_the_jib_breaks_it_unless_it_was_lightened() {
+        let mut game = structure_game(lvl("Hammer"));
+        hit_cell(&mut game, 3, 1);
+        let events = settle(&mut game, 5.0);
+        // The hammer lands on the mast and cracks it; the jib is then too
+        // heavy for it: it creaks and gives way.
+        assert_eq!(count(&events, cracked_by_debris), 1);
+        let order = [
+            first(&events, cracked_by_debris),
+            first(&events, overloaded),
+            first(&events, gave_way),
+            first(&events, keystone_fell),
+        ];
+        assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
+        assert_eq!(game.level, lvl("Hammer") + 1);
+
+        // The jib's hanging brick knocked off first: the cracked mast
+        // carries what is left.
+        let mut game = structure_game(lvl("Hammer"));
+        hit_cell(&mut game, 8, 6);
+        hit_cell(&mut game, 3, 1);
+        let events = settle(&mut game, 5.0);
+        assert_eq!(count(&events, cracked_by_debris), 1);
+        assert_eq!(count(&events, overloaded), 0);
+        assert_eq!(game.level, lvl("Hammer"));
+    }
+
+    #[test]
+    fn the_crane_needs_the_stay_and_the_load_in_either_order() {
+        for order in [[(8, 2), (8, 2), (3, 1)], [(3, 1), (8, 2), (8, 2)]] {
+            let mut game = structure_game(lvl("Crane"));
+            let mut events = Vec::new();
+            for (col, row) in order {
+                assert_eq!(game.level, lvl("Crane"), "not won before the last cut");
+                hit_cell(&mut game, col, row);
+                events.extend(settle_at(&mut game, 160.0, 4.0));
+            }
+            assert_eq!(count(&events, keystone_fell), 1, "{order:?}");
+            assert!(
+                count(&events, cracked_by_debris) >= 1,
+                "the load cracks the mast"
+            );
+        }
+        // Stay first, then the load: its end falls on a paddle under it
+        // before the jib does.
+        let mut game = structure_game(lvl("Crane"));
+        hit_cell(&mut game, 8, 2);
+        hit_cell(&mut game, 8, 2);
+        hit_cell(&mut game, 3, 1);
+        let events = settle_at(&mut game, 160.0, 5.0);
+        assert!(first(&events, paddle_struck) < first(&events, keystone_fell));
+        // Neither alone does it.
+        for (col, row) in [(3, 1), (8, 2)] {
+            let mut game = structure_game(lvl("Crane"));
+            break_cell(&mut game, col, row);
+            settle(&mut game, 4.0);
+            assert_eq!(game.level, lvl("Crane"), "({col}, {row}) alone");
+        }
     }
 
     #[test]
@@ -6002,6 +6354,11 @@ mod tests {
         assert_eq!(game.state, GameState::Victory, "the last structure");
     }
 
+    /// The levels whose lesson is a single cut: a thin hold under a heavy
+    /// block, a support's two hits, a dropped hammer. Every other level
+    /// asks for a sequence.
+    const ONE_CUT_LESSONS: [&str; 3] = ["First fall", "Table", "Hammer"];
+
     /// How hard each structure is to bring down, measured two ways.
     /// `hold` is the hits it takes to cut every chain from the keystone to
     /// an anchor (`Structure::keystone_holds`). `single` is whether
@@ -6029,7 +6386,7 @@ mod tests {
     }
 
     #[test]
-    fn the_structures_get_harder_and_past_the_second_none_falls_to_one_brick() {
+    fn the_structures_get_harder_and_only_the_lessons_fall_to_one_brick() {
         let table: Vec<(u32, bool)> = (1..=levels::STRUCTURES.len()).map(difficulty).collect();
         let mut wrong = Vec::new();
         for (i, level) in levels::STRUCTURES.iter().enumerate() {
@@ -6042,8 +6399,9 @@ mod tests {
             if hold < 2 {
                 wrong.push(format!("{}: {hold} hits free the keystone", level.name));
             }
-            // The first two are lessons: one cut and it comes down.
-            if single != (i < 2) {
+            // The single-cut lessons come down to one brick; nothing else
+            // does.
+            if single != ONE_CUT_LESSONS.contains(&level.name) {
                 wrong.push(format!("{}: one brick wins: {single}", level.name));
             }
         }
@@ -6116,12 +6474,16 @@ mod tests {
             game.last_collapse.map(|(c, _)| c),
             Some(Collapse {
                 bricks: 1,
-                score: below * factor
+                score: below * factor,
+                waves: 1,
+                base: Some(0),
+                run: 1,
             })
         );
         assert!(events.contains(&GameEvent::CollapseEnded {
             bricks: 1,
-            score: below * factor
+            score: below * factor,
+            waves: 1,
         }));
         assert_eq!(
             count(&events, |e| matches!(e, GameEvent::PowerUpSpawned(_))),
@@ -6251,10 +6613,15 @@ mod tests {
         cut_loose(&mut game);
         let x = game.paddle.x;
         game.tick(&Input::default(), DT);
-        // Still shaking in place: warned, and marked as not yet falling.
+        // Still shaking in place: warned, and marked as not yet falling. The
+        // two bricks of the column land in one place: one mark, the sooner.
         let zones = game.fall_zones();
-        assert_eq!(zones.len(), 2);
-        assert!(zones.iter().all(|z| z.x == x && !z.falling));
+        assert_eq!(zones.len(), 1);
+        let zone = zones[0];
+        assert!(zone.x == x && !zone.falling && zone.on == Landing::Paddle);
+        assert_eq!(zone.y, game.paddle.top());
+        // It says how soon: a shake and a fall of about 500 px.
+        assert!((0.6..1.4).contains(&zone.secs), "{}", zone.secs);
         // In the air.
         settle(&mut game, 0.6);
         let zones = game.fall_zones();
@@ -6288,23 +6655,160 @@ mod tests {
     }
 
     #[test]
-    fn nothing_that_falls_after_the_keystone_touches_the_paddle() {
+    fn after_the_keystone_falling_bricks_are_caught_not_suffered() {
         // The first level's block comes down over the middle of the field,
-        // where the paddle waits: the level is won, and it costs nothing.
+        // where the paddle waits: the level is won, nothing it lets fall can
+        // hold the paddle, and every brick that lands on it is caught for
+        // its points again.
         let mut game = structure_game(1);
         break_cell(&mut game, 2, 3);
         let mut events = Vec::new();
+        let mut score_at_keystone = None;
         while game.level == 1 {
             game.tick(&Input::default(), DT);
             events.append(&mut game.events);
             if game.finale {
-                assert_eq!(game.fall_zones(), []);
+                score_at_keystone.get_or_insert(game.score);
+                assert!(game.fall_zones().iter().all(|z| z.on != Landing::Paddle));
             }
             assert!(events.len() < 20_000);
         }
         assert_eq!(count(&events, keystone_fell), 1);
         assert_eq!(count(&events, paddle_struck), 0);
         assert_eq!(game.paddle_stun, 0.0);
+        let caught: Vec<(u32, u32)> = events
+            .iter()
+            .filter_map(|e| match e {
+                GameEvent::DebrisCaught { nth, points, .. } => Some((*nth, *points)),
+                _ => None,
+            })
+            .collect();
+        assert!(caught.len() >= 2, "the paddle under the block catches some");
+        assert!(caught.iter().enumerate().all(|(i, c)| c.0 == i as u32 + 1));
+        assert!(caught.iter().all(|c| c.1 > 0), "each pays what it scored");
+        let paid: u32 = caught.iter().map(|c| c.1).sum();
+        assert!(game.score >= score_at_keystone.unwrap() + paid);
+    }
+
+    #[test]
+    fn a_falling_brick_over_a_brick_marks_where_it_will_hit_it() {
+        // The Hammer: while it shakes and falls, the mark is on the mast's
+        // top, not on the paddle's line, and it says it will hit a brick.
+        let mut game = structure_game(lvl("Hammer"));
+        hit_cell(&mut game, 3, 1);
+        game.tick(&Input::default(), DT);
+        let grid = levels::STRUCTURES[lvl("Hammer") - 1].grid;
+        let mast = game.bricks[in_cell(&game, grid, 3, 4)];
+        let zones = game.fall_zones();
+        assert_eq!(zones.len(), 1, "{zones:?}");
+        assert_eq!(zones[0].on, Landing::Brick);
+        assert_eq!(zones[0].y, mast.top());
+        // A falling brick over steel will do nothing: no mark.
+        let grid = &["X1", "1.", "..", "X."];
+        let mut game = structure_of(grid);
+        let held = in_cell(&game, grid, 1, 0);
+        game.bricks[held].kind = BrickKind::Indestructible;
+        let anchor = in_cell(&game, grid, 0, 0);
+        game.bricks.remove(anchor);
+        game.tick(&Input::default(), DT);
+        assert_eq!(game.fall_zones(), []);
+    }
+
+    #[test]
+    fn a_collapse_is_scored_as_the_shot_that_set_it_off_whatever_the_paddle_does() {
+        // The Tower, its column cut low and a brace cut, the third and
+        // fourth bricks of a rally: the column hangs from one brace,
+        // overloads it, and all comes down in a run that starts at the
+        // shot's x4, even when the ball touches the paddle while it falls.
+        let play = |paddle_touch: bool| {
+            let mut game = structure_game(lvl("Tower"));
+            game.rally = 2;
+            break_cell(&mut game, 6, 8);
+            break_cell(&mut game, 5, 1);
+            let mut events = Vec::new();
+            while game.collapse.base.is_none() {
+                game.tick(&Input::default(), DT);
+                events.append(&mut game.events);
+                assert!(events.len() < 10_000);
+            }
+            assert_eq!(
+                game.collapse.base,
+                Some(4),
+                "the shot's rally, with its cuts"
+            );
+            if paddle_touch {
+                // A paddle touch starts the rally over, not the collapse.
+                game.rally = 0;
+            }
+            events.extend(settle(&mut game, 6.0));
+            let ended: Vec<(u32, u32, u32)> = events
+                .iter()
+                .filter_map(|e| match e {
+                    GameEvent::CollapseEnded {
+                        bricks,
+                        score,
+                        waves,
+                    } => Some((*bricks, *score, *waves)),
+                    _ => None,
+                })
+                .collect();
+            (ended, game.score)
+        };
+        let (kept, touched) = (play(false), play(true));
+        assert_eq!(kept, touched, "the paddle changes nothing");
+        assert!(!kept.0.is_empty());
+    }
+
+    #[test]
+    fn bricks_the_keystone_releases_score_their_plain_value() {
+        // A block hung from one tie, the keystone in its own column beside
+        // it on a second tie: cut the keystone's tie and the block, which
+        // nothing threatened, is released, not brought down.
+        let grid = &["X..X", "|..|", "1..K"];
+        let mut game = structure_of(grid);
+        let block = game.bricks[in_cell(&game, grid, 0, 2)];
+        let its_tie = game.bricks[in_cell(&game, grid, 0, 1)];
+        let key = in_cell(&game, grid, 3, 1);
+        let tie = game.bricks.remove(key);
+        game.on_brick_destroyed(tie);
+        game.powerups.clear();
+        let before = game.score;
+        let events = settle(&mut game, 3.0);
+        assert_eq!(count(&events, keystone_fell), 1);
+        // The keystone scored as the collapse's run (x2, after the cut's
+        // x1, then twice for coming down); the block and its tie, released,
+        // their rows' values and no more.
+        let keystone = structure::RULES.keystone_score * 2 * 2;
+        assert_eq!(game.score - before, keystone + block.score + its_tie.score);
+    }
+
+    #[test]
+    fn one_cut_outscores_chipping_the_same_structure_down() {
+        // The Bridge, by its three hits (a tie, then a pier), against the
+        // same level chipped: the deck's bricks beside the keystone and
+        // the slab hit one at a time, one hit a rally, as a player would
+        // who never aims at what carries.
+        let mut cut = structure_game(lvl("Bridge"));
+        for (col, row) in [(2, 1), (9, 7), (9, 7)] {
+            cut.rally = 0;
+            hit_cell(&mut cut, col, row);
+            settle(&mut cut, 4.0);
+        }
+        assert!(cut.level > lvl("Bridge"));
+
+        let mut chipped = structure_game(lvl("Bridge"));
+        for (col, row) in [(5, 5), (5, 5), (7, 5), (7, 5)] {
+            chipped.rally = 0;
+            hit_cell(&mut chipped, col, row);
+            settle(&mut chipped, 4.0);
+        }
+        assert!(chipped.level > lvl("Bridge"));
+        assert!(
+            cut.score > chipped.score,
+            "cut {} against chipped {}",
+            cut.score,
+            chipped.score
+        );
     }
 
     #[test]
@@ -6351,8 +6855,8 @@ mod tests {
     fn a_collapse_goes_on_after_the_ball_is_lost() {
         let mut game = structure_game(lvl("Bridge"));
         game.ball.attached = false;
+        break_cell(&mut game, 9, 7);
         break_cell(&mut game, 2, 1);
-        break_cell(&mut game, 10, 1);
         // The ball drops out at once; the slab still comes down.
         (game.ball.x, game.ball.y) = (40.0, PLAYFIELD_HEIGHT + 20.0);
         (game.ball.vx, game.ball.vy) = (0.0, 300.0);
@@ -6369,8 +6873,8 @@ mod tests {
     fn the_same_cut_gives_the_same_collapse() {
         let run = || {
             let mut game = structure_game(lvl("Bridge"));
+            break_cell(&mut game, 9, 7);
             break_cell(&mut game, 2, 1);
-            break_cell(&mut game, 10, 1);
             let events = settle(&mut game, 5.0);
             (events, game.score, game.level)
         };
