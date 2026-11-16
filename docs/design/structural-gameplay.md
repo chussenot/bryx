@@ -297,8 +297,8 @@ and one from the autopilot:
 - **Hold:** the hits it takes to cut every chain from the keystone to an
   anchor (`Structure::keystone_holds`, a minimum cut). An upper bound on
   the work: a structure often comes down for less, when a cut leaves a
-  hold carrying more than it can. Its mean by act: 3e+00, 4e+00,
-  4e+00, 6e+00.
+  hold carrying more than it can. Its mean by act: 2.8, 3.5, 4.5,
+  5.8.
 - **One brick wins:** whether breaking a single brick, however many hits
   it takes, ends the level. True of the first two levels only, found by
   playing every brick of every level out.
