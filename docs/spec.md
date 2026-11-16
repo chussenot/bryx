@@ -221,6 +221,9 @@ never set them.
 - Sound is presentation only. `src/audio/director.rs` reads each tick's
   events and the game's state, like the renderers, and never writes to
   them.
+- V on the menu switches between the 2D and 3D renderers (`--renderer`
+  sets the start); the menu shows which is drawing. An interface key,
+  never simulation input, and not kept between sessions.
 - M cycles the sound: on, effects only, off (`BRYX_SOUND` sets the
   start). No device means a silent game, never a crash.
   `--no-default-features` builds a silent game with no C compiler and no

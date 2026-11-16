@@ -194,6 +194,9 @@ pub struct Frame<'a> {
     /// The sound setting, shown by the M key on the menu and pause
     /// screens; `None` when there is no sound to set.
     pub sound: Option<&'static str>,
+    /// Which renderer is drawing ("View: 2D" or "View: 3D"), shown by the
+    /// V key that switches it, on the menu.
+    pub view: &'static str,
     /// The menu's mode picker (`menu.rs`). `None` draws the one mode the
     /// game already holds, as a single row.
     pub menu: Option<&'a MenuView>,
@@ -933,7 +936,7 @@ fn state_screen(out: &mut Layout, frame: &Frame, state: GameState) {
                     &fallback
                 }
             };
-            menu_screen(out, view, sound);
+            menu_screen(out, view, sound, frame.view);
         }
         GameState::Paused => {
             let rows = 4 + usize::from(sound.is_some());
@@ -1080,7 +1083,7 @@ const MENU_VALUE_CHARS: usize = 14;
 /// changes the value of the one row that has one, Space plays. The
 /// highlighted row is filled, outlined and barred on its left edge, so
 /// the selection never rides on color alone.
-fn menu_screen(out: &mut Layout, view: &MenuView, sound: Option<&str>) {
+fn menu_screen(out: &mut Layout, view: &MenuView, sound: Option<&str>, renderer: &str) {
     let rows_top = BAND_HEIGHT + 138.0;
     let rows_bottom =
         rows_top + view.rows.len() as f32 * (MENU_ROW_HEIGHT + MENU_ROW_GAP) - MENU_ROW_GAP;
@@ -1102,6 +1105,9 @@ fn menu_screen(out: &mut Layout, view: &MenuView, sound: Option<&str>) {
     if view.rows.iter().any(|r| r.value.is_some() && r.enabled) {
         nav.push((&["←", "→"], "Set"));
     }
+    // On the navigation line, not under the controls: with five modes and
+    // the sound key, one more row there would run off the canvas.
+    nav.push((&["V"], renderer));
     nav.push((&["SPACE"], "Play"));
     key_line(out, nav_y, &nav);
 
@@ -1522,6 +1528,7 @@ mod tests {
             capsules: &[],
             record: Record::default(),
             sound: None,
+            view: "View: 2D",
             menu: None,
         }
     }
@@ -1887,6 +1894,15 @@ mod tests {
             ..Record::default()
         };
         assert!(with(&game, new_best).contains("NEW BEST"));
+    }
+
+    #[test]
+    fn the_view_key_shows_on_the_menu_only() {
+        let mut game = Game::new();
+        let menu = all_text(&layout(&frame(&game), None));
+        assert!(menu.lines().any(|l| l == "V") && menu.contains("View: 2D"));
+        game.state = GameState::Paused;
+        assert!(!all_text(&layout(&frame(&game), None)).contains("View"));
     }
 
     #[test]

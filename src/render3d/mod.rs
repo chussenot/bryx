@@ -1932,6 +1932,7 @@ impl Renderer3D {
                 capsules: &capsules,
                 record: self.record,
                 sound: self.sound,
+                view: "View: 3D",
                 // Unset (no rows) draws the game's own mode alone.
                 menu: (!self.menu.rows.is_empty()).then_some(&self.menu),
             },

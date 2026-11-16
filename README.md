@@ -141,6 +141,7 @@ changes it in game.
 | After a Victory     | Space, Escape or P: play again |
 | Q                   | Back to the menu, from the pause and end screens |
 | M                   | Sound: on, effects only, off |
+| V                   | On the menu: switch between the 2D and 3D view |
 | F11                 | Fullscreen on / off      |
 
 Keyboard only; menu and pause screens show the same keys on-screen.

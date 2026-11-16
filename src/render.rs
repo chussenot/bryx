@@ -1261,6 +1261,7 @@ impl Renderer {
                 capsules: &capsules,
                 record: self.record,
                 sound: self.sound,
+                view: "View: 2D",
                 // Unset (no rows) draws the game's own mode alone.
                 menu: (!self.menu.rows.is_empty()).then_some(&self.menu),
             },
