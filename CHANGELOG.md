@@ -2,6 +2,46 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.6.0 - 2026-11-17
+#### Features
+- (**game**) an asteroid that reaches the paddle costs 250 points - (cfa08fa) - Clement Hussenot
+- (**game**) rally scoring behind --rally-score - (d2bcddb) - Claude, *Claude Opus 5.5*
+- (**game**) finales are played, never left through the Break gate - (956631a) - Claude, *Claude Opus 5.5*
+- (**menu**) V switches between the 2D and 3D view - (dcb1c65) - Clement Hussenot
+- (**menu**) V switches between the 2D and 3D view - (fefdee1) - Clement Hussenot
+- (**movement**) act I's ground is a scattered, slowly twinkling sky - (056f937) - Clement Hussenot
+- Structures v2, collapses as consequences, a first act that teaches - (22fd7d0) - Claude, *Claude Opus 5.5*
+- 32 structures in four acts, as many as the campaign - (823a81a) - Claude, *Claude Fable 5.2*
+- falling bricks hold the paddle still, and the floor shows where - (d0da24d) - Claude, *Claude Fable 5.2*
+- eight structures that need a sequence of cuts, not one - (e6c75c3) - Claude, *Claude Fable 5.2*
+- structural destruction, a playable slice of four structures - (baac318) - Claude, *Claude Fable 5.2*
+- Meteor rain, a rare twelfth capsule - (d965d32) - Claude, *Claude Fable 5.2*
+- a playtest kit: per-level log, summary script and protocol - (957fcd0) - Claude, *Claude Opus 5.5*
+- end-of-run summary and records for every level set - (77e4180) - Claude, *Claude Opus 5.5*
+- the campaign's four movements, seen and heard - (c8c040f) - Claude, *Claude Opus 5.5*
+- comfort pass: fullscreen, focus pause, and the missing sounds - (efd222c) - Claude, *Claude Opus 5.5*
+#### Bug Fixes
+- (**audio**) play the rally in the key of the track it sits over - (8eb125f) - Claude, *Claude Opus 5.5*
+- (**game**) serve on a fresh Space press, never a held one - (8fa1692) - Claude, *Claude Opus 5.5*
+- (**hud**) keep the serve key clear of the 3D paddle on a structural act's opening - (f62571c) - Claude, *Claude Opus 5.5*
+- (**levels**) replace the Chandelier, whose keystone could not be brought down - (3dc83cd) - Clement Hussenot
+- (**levels**) unseal Picture frame and Fortress, and test the rule - (120803e) - Claude, *Claude Opus 5.5*
+#### Documentation
+- (**design**) game director review for v0.5.0 - (97023c4) - Claude, *Claude Opus 5.5*
+- Structures v2, the design review and what came of it - (d6c6b51) - Claude, *Claude Opus 5.5*
+- the mean hold of each act of structures, as numbers - (7acbc6d) - Claude, *Claude Fable 5.2*
+- the structural concept, its rules, and what a playtest measures - (beb46dd) - Claude, *Claude Fable 5.2*
+#### Tests
+- (**game**) seed the random-bonus draw test - (a5fe71b) - Claude, *Claude Opus 5.5*
+- iterate the forecast's path instead of indexing it - (ccf72fe) - Claude, *Claude Fable 5.2*
+#### Miscellaneous Chores
+- Add events - (834f993) - Clement Hussenot
+- Add events - (f11ca73) - Clement Hussenot
+- Add events - (d646f2a) - Clement Hussenot
+- Add event - (249c710) - Clement Hussenot
+
+- - -
+
 ## 0.5.0 - 2026-11-10
 #### Features
 - (**bench**) opt-in GPU stage timing, adapter line and BENCH_SIZE - (3d24472) - Clement Hussenot
