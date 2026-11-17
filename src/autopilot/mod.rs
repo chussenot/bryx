@@ -932,6 +932,66 @@ mod tests {
         }
     }
 
+    /// The Chandelier hid its third hold under the ceiling and took one
+    /// seed ten minutes; the structure in its place has all its holds in
+    /// the open. Level 3 is the difference between playing to the end of
+    /// level 3 and to the end of level 2, the same play up to there.
+    #[test]
+    fn the_third_structure_is_brought_down_in_good_time_whatever_the_seed() {
+        let mut slowest = 0.0f32;
+        for seed in 1..=16 {
+            let (before, ..) = bring_down(seed, 2);
+            let (after, ..) = bring_down(seed, 3);
+            assert!(after.level > 3, "seed {seed}: stuck on level 3");
+            let secs = after.run_secs() - before.run_secs();
+            slowest = slowest.max(secs);
+            assert!(secs < 150.0, "seed {seed}: level 3 took {secs:.0} s");
+        }
+        println!("slowest level 3: {slowest:.0} s");
+    }
+
+    #[test]
+    #[ignore = "scratch"]
+    fn scratch_dump_level3() {
+        let mut game = Game::with_seed(3)
+            .with_structures()
+            .with_features(crate::game::Features::STRUCTURES);
+        let mut autopilot = Autopilot::new(None, 1);
+        let mut in3 = 0.0;
+        for _ in 0..120 * 600 {
+            let input = autopilot.input(&game, DT);
+            game.tick(&input, DT);
+            autopilot.observe(&game);
+            game.events.clear();
+            if game.level == 3 {
+                in3 += DT;
+                for mark in [20.0f32, 60.0, 120.0, 180.0] {
+                    if (in3 - mark).abs() < DT / 2.0 {
+                        let mut v: Vec<String> = game
+                            .bricks
+                            .iter()
+                            .map(|b| {
+                                format!("{:?}{}@({:.0},{:.0})", b.kind, b.hits_remaining, b.x, b.y)
+                            })
+                            .collect();
+                        v.sort();
+                        println!(
+                            "t={mark}: ball ({:.0},{:.0}) lives {} bricks {}: {:?}",
+                            game.ball.x,
+                            game.ball.y,
+                            game.lives,
+                            v.len(),
+                            v
+                        );
+                    }
+                }
+            }
+            if game.level > 3 {
+                break;
+            }
+        }
+    }
+
     /// All 32, to the Victory screen: about half an hour of play a seed.
     #[test]
     #[ignore = "a benchmark: a few seconds in release, minutes in debug"]

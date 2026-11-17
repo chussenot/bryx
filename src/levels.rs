@@ -555,16 +555,17 @@ pub const STRUCTURES: &[StructureLevel] = &[
             "...X......X...",
         ],
     },
-    // 3. Hung three ways: a tie above, a row of beams each side. On one, it is too heavy.
+    // 3. A block hung from four runs of beams, two a side, one above the
+    // other. Cut one and three still hold it; cut a second and two do. The
+    // third cut leaves one run, and that is more than a run of beams can
+    // carry: the block comes down with the keystone in it. Every beam is a
+    // wide target, in the open, so the lesson is the count: keep cutting.
+    // (The Chandelier this replaces hung its keystone from a tie under the
+    // ceiling, out of the ball's reach: one run took ten minutes.)
     StructureLevel {
-        name: "Chandelier",
-        hint: "TWO OF THREE HOLDS",
-        grid: &[
-            "......X......",
-            "......|......",
-            "X====1K1====X",
-            ".....2.2.....",
-        ],
+        name: "Lintel",
+        hint: "KEEP CUTTING THE BEAMS",
+        grid: &["X...........X", "X====1K1====X", "X====111====X"],
     },
     // 4. A column with the keystone at its head, braced to two posts by a
     // beam each side. Cut the column and its top hangs from the braces;

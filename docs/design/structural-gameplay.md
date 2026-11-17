@@ -269,7 +269,7 @@ structures: the Crane, the Bridge, the Gantry, the Citadel.
 |---|---|---|
 | 1 | First fall | A thin hold carries a heavy block. Won by an unaimed serve. |
 | 2 | Table | A support takes two hits; the one left takes it all. |
-| 3 | Chandelier | Several holds: it stands on two of three. |
+| 3 | Lintel | Several holds: it stands on three of four, then the last run is too heavy. |
 | 4 | Tower | Where you cut decides how much hangs. |
 | 5 | Trapdoor | A floor drops across the field: read the warning, then go in. |
 | 6 | Hammer | Drop a weight on a support: it cracks, and the load breaks it. Knock off the jib's hanging bricks first and it is too light to. |
@@ -299,7 +299,7 @@ copied from another game or from a fetched levelset.
 |---|---|---|---|---|
 | 1 | I | First fall | Cut a beam | 2 |
 | 2 | I | Table | Break a leg | 2 |
-| 3 | I | Chandelier | Two of three holds | 3 |
+| 3 | I | Lintel | Three of four holds | 3 |
 | 4 | I | Tower | Cut it low | 4 |
 | 5 | I | Trapdoor | Stand clear, then go in | 2 |
 | 6 | I | Hammer | Drop the hammer | 2 |
@@ -405,7 +405,9 @@ What makes a level harder, in order of effect:
   the paddle, so a tie hidden above a hammer or a load is out of its
   reach: on the Hammer and the Crane it brute-forces the mast instead. It
   still wins every level; the tests, not the autopilot, prove the drops.
-  One run of the Chandelier took it 562 s (25 s on the other seeds).
+  One run of the Chandelier took it 562 s (25 s on the other seeds); it
+  hid a tie under the ceiling, and the Lintel replaced it. A test runs the
+  Lintel on sixteen seeds: 13 to 18 s each.
 - **The hazard is occasional for a precise player** outside the levels
   built for it (the Trapdoor, the Crane, the Bridge, the Scaffold).
 - **Capsules can shortcut a level.** A Super laser, a Metal ball or a

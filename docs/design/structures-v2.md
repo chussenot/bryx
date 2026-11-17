@@ -182,7 +182,7 @@ Verdicts, from the probe and from reading each level:
 | 1 | First fall | Keep | Lesson: a thin hold carries a heavy block. Won by an unaimed serve. |
 | 2 | Table | Keep | Lesson: a support takes two hits, the other gives way. |
 | 3 | Pendulum | **Cut** | A second "both holds" lesson; two bricks fall; nothing to remember. |
-| 4 | Chandelier | Keep | Lesson: redundancy, three holds, stands on two. |
+| 4 | Chandelier | Keep, then **replaced** by the Lintel | Lesson: redundancy, three holds, stands on two. Its third hold was a tie under the ceiling, out of the ball's reach: one run took 562 s, and a player could not bring the keystone down. |
 | 5 | Tower | Keep | Lesson: where you cut decides the weight. |
 | 6 | Portcullis | **Move** to Act II | The third "three hangers, stands on two"; it opens Act II. |
 | 7 | Arch | Keep | Lesson 7: a sequence. |
@@ -216,7 +216,7 @@ Verdicts, from the probe and from reading each level:
 
 1. First fall: a thin hold carries a heavy block.
 2. Table: a support; the one left takes it all.
-3. Chandelier: several holds; it stands on two.
+3. Lintel (was the Chandelier): several holds, all in the open; it stands on three of four.
 4. Tower: where you cut decides how much hangs.
 5. **Trapdoor** (new): a floor drops toward the paddle; read the warning, then go in.
 6. **Hammer** (new): drop a weight on a support; the crack and the load do the rest.
