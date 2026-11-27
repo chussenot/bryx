@@ -10,9 +10,9 @@ tempo 0 112
 length 12
 tail 0.5
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 tempo 4 112
 tempo 5 105
 tempo 6 98

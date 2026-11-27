@@ -1,5 +1,9 @@
 # BRYX studio: Phase 2 technical report
 
+> The studio, its instrument library and the mixer described here moved to
+> Sonomorph (`chussenot/sonomorph`, `sonomorph::advanced`); paths below are
+> where they were when this was written.
+
 > A record of Phase 2, as measured then. The score has since moved to the
 > studio; [`audio.md`](audio.md) describes the game as it plays.
 

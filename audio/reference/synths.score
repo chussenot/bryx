@@ -7,9 +7,9 @@ tempo 0 112
 length 24
 tail 6
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 
 # Bass and sequence: the machine's ostinato on E, then C.
 note 0.0 0.22 synth_bass E1 118

@@ -1,5 +1,9 @@
 # BRYX: the cinematic electronic-orchestral score
 
+> The studio, its instrument library and the mixer described here moved to
+> Sonomorph (`chussenot/sonomorph`, `sonomorph::advanced`); paths below are
+> where they were when this was written.
+
 Phase 1 of the audio transformation: research, artistic direction, and the
 engine architecture that Phase 2 builds. This is a design document, not
 a description of current behavior. `audio.md` and `music.md` remain true

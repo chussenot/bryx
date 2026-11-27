@@ -212,12 +212,14 @@ never set them.
 
 **Sound (added after v1)**, designed in `docs/design/audio.md`:
 - Sounds are `.score` text files in `audio/score/`. `build.rs` renders them
-  at build time with BRYX's studio (`audio/engine/`, C99; see its
-  PROVENANCE.md) from a CC0 orchestral sample set (`audio/samples/`), and
+  at build time with Sonomorph's studio (BRYX's, extracted to
+  `chussenot/sonomorph`; see its `engine/advanced/PROVENANCE.md`) from a
+  CC0 orchestral sample set (its `library/`), and
   the binary embeds the audio: music and stingers as 48 kHz stereo QOA,
   effects as 8-bit mu-law. The game runs no C.
-- Playback goes through `cpal` (the default `audio` feature; justified in
-  `Cargo.toml`) into BRYX's own mixer (`src/audio/`): panned effects,
+- Playback goes through Sonomorph's mixer and its `cpal` stream (the
+  default `audio` feature; justified in `Cargo.toml`), driven by BRYX's
+  director (`src/audio/`): panned effects,
   pitched by playback rate; stingers that duck the music; one music track
   per campaign level (`audio/compose.py`, `audio/compose_studio.py`,
   `docs/design/music.md`),

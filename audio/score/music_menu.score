@@ -11,9 +11,9 @@ tempo 0 92
 length 64
 loop on
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 ramp master.gain 0 0.001 -1 -1 lin
 note 0.0000 64.0000 electronic_drone 28 64
 

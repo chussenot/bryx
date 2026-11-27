@@ -8,9 +8,9 @@ tempo 0 100
 length 40
 tail 6
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 
 # Bars 1-2: drone and air, a timpani roll.
 note 0 32 electronic_drone E1 100

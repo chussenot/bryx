@@ -11,16 +11,16 @@ bus sfx gain=0 hpf=40
 master limit=-1
 
 # Orchestra: plucks, taps and short notes.
-inst sfx_pizz_hi  sfz=../samples/violins_pizz.sfz  bus=sfx pan=0 release=0.08
-inst sfx_pizz_lo  sfz=../samples/celli_pizz.sfz    bus=sfx pan=0 release=0.08
-inst sfx_spic     sfz=../samples/violins_spic.sfz  bus=sfx pan=0 release=0.05 send=sfx_echo:-10
-inst sfx_trem     sfz=../samples/violins_trem.sfz  bus=sfx pan=0 attack=0.15 release=0.2 send=sfx_echo:-6
-inst sfx_trumpet  sfz=../samples/trumpet_sus.sfz   bus=sfx pan=0 attack=0.01 release=0.25 send=sfx_room:-8
-inst sfx_trumpet_stac sfz=../samples/trumpet_stac.sfz bus=sfx pan=0 release=0.06
-inst sfx_trombone_stac sfz=../samples/trombone_stac.sfz bus=sfx pan=0 release=0.06
-inst sfx_timp     sfz=../samples/timpani.sfz        bus=sfx pan=0 release=0.25
-inst sfx_timp_roll sfz=../samples/timpani_roll.sfz  bus=sfx pan=0 attack=0.08 release=0.15
-inst sfx_kit      sfz=../samples/kit.sfz            bus=sfx pan=0 release=0.3 send=sfx_room:-10
+inst sfx_pizz_hi  sfz=@library/samples/violins_pizz.sfz  bus=sfx pan=0 release=0.08
+inst sfx_pizz_lo  sfz=@library/samples/celli_pizz.sfz    bus=sfx pan=0 release=0.08
+inst sfx_spic     sfz=@library/samples/violins_spic.sfz  bus=sfx pan=0 release=0.05 send=sfx_echo:-10
+inst sfx_trem     sfz=@library/samples/violins_trem.sfz  bus=sfx pan=0 attack=0.15 release=0.2 send=sfx_echo:-6
+inst sfx_trumpet  sfz=@library/samples/trumpet_sus.sfz   bus=sfx pan=0 attack=0.01 release=0.25 send=sfx_room:-8
+inst sfx_trumpet_stac sfz=@library/samples/trumpet_stac.sfz bus=sfx pan=0 release=0.06
+inst sfx_trombone_stac sfz=@library/samples/trombone_stac.sfz bus=sfx pan=0 release=0.06
+inst sfx_timp     sfz=@library/samples/timpani.sfz        bus=sfx pan=0 release=0.25
+inst sfx_timp_roll sfz=@library/samples/timpani_roll.sfz  bus=sfx pan=0 attack=0.08 release=0.15
+inst sfx_kit      sfz=@library/samples/kit.sfz            bus=sfx pan=0 release=0.3 send=sfx_room:-10
 
 # Every effect keeps energy between 300 Hz and 3 kHz, the band the score
 # leaves to gameplay and the one every speaker reproduces: a rumble or a

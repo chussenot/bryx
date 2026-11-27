@@ -296,8 +296,6 @@ name = "bryx"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "cc",
- "cpal",
  "glam",
  "glyphon",
  "image",
@@ -305,6 +303,7 @@ dependencies = [
  "lyon_tessellation",
  "rand",
  "serde_json",
+ "sonomorph",
  "tokio",
  "wesl",
  "wgpu",
@@ -3140,6 +3139,15 @@ checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "sonomorph"
+version = "0.1.0"
+source = "git+https://github.com/chussenot/sonomorph?rev=7478336bd47da9f1aff15f64cebea88ef2de0267#7478336bd47da9f1aff15f64cebea88ef2de0267"
+dependencies = [
+ "cc",
+ "cpal",
 ]
 
 [[package]]

@@ -10,9 +10,9 @@ tempo 0 160
 length 8
 tail 0.15
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 note 0.0066 0.1750 strings_high_spic 71 74
 note 0.5034 0.1750 strings_high_spic 74 78
 note 0.7580 0.1750 strings_high_spic 76 79

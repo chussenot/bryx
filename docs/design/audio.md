@@ -48,47 +48,54 @@ Four ideas shape everything below:
 flowchart LR
   Notes["audio/compose.py<br/>themes, recipes, parts"] --> Arr["audio/compose_studio.py<br/>orchestration"]
   Arr --> Score["audio/score/*.score<br/>(text, committed)"]
-  Samples["audio/samples/<br/>VSCO 2 CE, CC0"] --> Tool
-  Score -->|build.rs| Tool["the studio<br/>(audio/engine, C host tool)"]
+  Samples["sonomorph library/<br/>VSCO 2 CE, CC0"] --> Tool
+  Score -->|build.rs| Tool["the studio<br/>(sonomorph::advanced)"]
   Tool -->|music, stingers| QOA["QOA, 48 kHz stereo"]
   Tool -->|effects| Mu["mu-law, 22 kHz mono"]
   Game[game.rs events + state] --> Dir["director.rs<br/>what, where, which pitch"]
-  Dir -->|commands| Mix["mixer.rs<br/>voices, music, duck, limiter"]
+  Dir -->|commands| Mix["sonomorph::advanced::Mixer<br/>voices, music, duck, limiter"]
   QOA --> Mix
   Mu --> Mix
-  Mix --> Out["output.rs<br/>cpal stream"]
+  Mix --> Out["sonomorph::advanced::Output<br/>cpal stream"]
 ```
 
-- **Render at build time, not at runtime.** `build.rs` compiles the studio
-  (`audio/engine/`: see its PROVENANCE.md) and `audio/render.c` into a host
-  tool and renders every score in `OUT_DIR`; the binary embeds the bytes.
+- **Render at build time, not at runtime.** `build.rs` renders every score
+  in `OUT_DIR` with Sonomorph's studio (`sonomorph::advanced::render_score`,
+  the studio BRYX wrote and extracted: see Sonomorph's
+  `engine/advanced/PROVENANCE.md`); the binary embeds the bytes.
   The game runs no C and no `unsafe` FFI, needs no audio files beside it,
   and every build on a machine sounds the same. A sound is a `.score` text
   file.
 - **The studio** renders a score in 32-bit float stereo at 48 kHz:
   - a sampler playing a curated, CC0 subset of VSCO 2 Community Edition
-    (`audio/samples/`), with velocity layers and looped sustains;
+    (Sonomorph's `library/samples/`), with velocity layers and looped
+    sustains;
   - an analog-style synth voice (band-limited oscillators, stacks, a
     ladder filter, envelopes, LFOs);
   - group buses with EQ and keyed compressors, four reverbs and a
     ping-pong echo on aux returns, a master compressor and limiter.
 
-  Named instruments and the mixing desk live in `audio/instruments/`.
+  The mixing desk, the orchestra and the synth palette are Sonomorph's
+  instrument library, which a score includes as `@library/instruments/...`;
+  the effects' instruments (`audio/instruments/sfx.inc`) are BRYX's own.
 - **Two storage formats, one per job:**
   - **Music and stingers: QOA**, 48 kHz stereo, 3.2 bits a sample
-    (`src/audio/qoa.rs`, a port of the reference decoder, checked bit for
-    bit). The mixer decodes one 20-sample slice at a time as a track plays
+    (`sonomorph::advanced::qoa`, a port of the reference decoder, checked
+    bit for bit). The mixer decodes one 20-sample slice at a time as a track plays
     and resamples to the device's rate with a cubic. A loop is encoded
     with the predictor state its own end leaves, so it wraps without a
     click.
-  - **Effects: 8-bit mu-law**, mono at 22,050 Hz (`src/audio/mulaw.rs`).
+  - **Effects: 8-bit mu-law**, mono at 22,050 Hz
+    (`sonomorph::chip8::mulaw`), folded down from the studio's stereo by
+    `sonomorph::advanced::fold_effect`.
     They are short, mono by nature (the game pans them) and pitched by
     playback rate, which needs random access QOA does not give.
 - **One renderer, many notes.** Pitch is playback rate, so one rendered
   brick note plays the whole pentatonic scale and one paddle knock every
   speed.
-- **Playback through `cpal`.** It is a device layer only; the mixer is
-  BRYX's own, in `src/audio/mixer.rs`:
+- **Playback through `cpal`.** It is a device layer only; the mixer was
+  BRYX's own and is now Sonomorph's (`sonomorph::advanced::Mixer`, BRYX's
+  levels as its defaults):
   - up to 32 voices, the oldest stolen beyond that;
   - music crossfades over 1.2 s, at equal power;
   - stingers duck the music to 25%;
@@ -114,7 +121,7 @@ flowchart LR
 ## Real time
 
 The mixer runs inside the audio callback, and two properties are tested,
-not assumed (`src/audio/mixer.rs`):
+not assumed (Sonomorph's mixer tests and `tests/no_alloc.rs`):
 
 - **Nothing on the callback's path touches the heap.** A counting
   allocator in test builds shows that a busy stretch of play (music
@@ -239,15 +246,18 @@ against new:
 
 - **A track's notes** (themes, harmony, form, tempo): `audio/compose.py`.
 - **Who plays them** (orchestration, effects, stingers):
-  `audio/compose_studio.py`, and the instruments in `audio/instruments/`.
+  `audio/compose_studio.py`, the effects' instruments in
+  `audio/instruments/sfx.inc`, and Sonomorph's library for the rest.
 - Then `python3 audio/compose_studio.py` rewrites `audio/score/`. It runs
   the score lint first and refuses a note outside a track's mode or a
   texture too dense to hear. Commit the scores; `cargo build` renders
   them.
-- To hear one score: `bryx-cue-render x.score x.f32` (the tool is in the
-  build's `OUT_DIR`; `.qoa` and `.s16` work too).
-- **The samples**: `audio/samples/curate.py` rebuilds them from a VSCO 2
-  CE checkout (`audio/samples/README.md`).
+- To hear one score: `sonomorph-render x.score x.wav` (`cargo install --git
+  https://github.com/chussenot/sonomorph --rev <the pinned rev> --features
+  render,render-advanced sonomorph-render`; `.qoa`, `.f32` and `.s16` work
+  too).
+- **The samples**: Sonomorph's `library/samples/curate.py` rebuilds them
+  from a VSCO 2 CE checkout.
 
 ## Open
 

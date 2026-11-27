@@ -6,9 +6,9 @@ tempo 0 80
 length 32
 tail 4
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 
 # Horns: a slow stepwise line over low brass chords.
 note 0 3 brass_horns E4 96

@@ -11,9 +11,9 @@ tempo 0 160
 length 12
 tail 0.3
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 
 # Bar 1: Spark bounding up, violins spiccato and the bell, a pizzicato bass.
 note 0.0033 0.1750 strings_high_spic 71 90

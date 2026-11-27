@@ -8,9 +8,9 @@ tempo 0 150
 length 4
 tail 0.25
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 note 0.0000 0.4500 brass_horns 76 89
 note 0.5057 0.4500 brass_horns 69 95
 note 1.0079 0.9000 brass_horns 64 92

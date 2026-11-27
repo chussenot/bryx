@@ -13,9 +13,9 @@ tempo 0 132
 length 64
 loop on
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 bus pump gain=-2 comp=-28:6:0.002:0.14 key=electronic_pulse send=hall:-14
 inst pad_pumped synth bus=pump gain=-14 send=long:-16 wave=saw stack=5 detune=12 spread=0.8 filter=lp cutoff=1600 res=0.15 keytrack=0.3 attack=0.3 decay=0.5 sustain=0.9 release=0.8
 ramp master.gain 0 0.001 -1.5 -1.5 lin

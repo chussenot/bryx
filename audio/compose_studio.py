@@ -4,7 +4,7 @@
 usage: audio/compose_studio.py [OUT_DIR]   (default audio/reference/cues)
 
 Writes the six reference cues of docs/design/orchestral-score.md (Phase 3)
-as `.score` files for the studio (audio/engine/studio.c):
+as `.score` files for Sonomorph's studio (sonomorph::advanced):
 
     act1_warmup     Act I, sparse        level 01 Warm-up    E dorian 112
     act2_frame      Act II, melodic      level 09 Picture frame  E aeolian 120
@@ -101,7 +101,14 @@ class Score:
             f"length {bars * 4}",
         ]
         self.head.append("loop on" if loop else f"tail {tail}")
-        self.head += ["seed 1"] + [f"include {{INCLUDES}}/{lib}.inc" for lib in libs]
+        # The desk, the orchestra and the synth palette are Sonomorph's
+        # instrument library (`@library/`); a library of BRYX's own (sfx)
+        # is found relative to the score.
+        shared = ("desk", "orchestra", "electronic")
+        self.head += ["seed 1"] + [
+            f"include @library/instruments/{lib}.inc" if lib in shared else f"include {{INCLUDES}}/{lib}.inc"
+            for lib in libs
+        ]
         self.extra, self.body = [], []
         self.swing = 0.0
         self.counter = 0

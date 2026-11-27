@@ -7,9 +7,9 @@ tempo 0 72
 length 32
 tail 4
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 
 # Sustains: an E minor chord across the sections, swelling in and out.
 note 0 7.5 strings_bass E2 100

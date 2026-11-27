@@ -9,9 +9,9 @@ tempo 0 130
 length 64
 loop on
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 tempo 60 130
 tempo 61 125.33
 tempo 62 120.67

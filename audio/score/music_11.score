@@ -9,9 +9,9 @@ tempo 0 124
 length 64
 loop on
 seed 1
-include ../instruments/desk.inc
-include ../instruments/orchestra.inc
-include ../instruments/electronic.inc
+include @library/instruments/desk.inc
+include @library/instruments/orchestra.inc
+include @library/instruments/electronic.inc
 ramp master.gain 0 0.001 -1.5 -1.5 lin
 note 0.0113 0.1750 strings_high 71 110
 note 0.0000 0.1500 synth_glass 83 76

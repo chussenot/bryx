@@ -1,14 +1,16 @@
 //! The cue bank: every sound BRYX can make, as `build.rs` rendered it from
-//! `audio/score/` with BRYX's studio (`audio/engine/`). The bytes stay
-//! where the binary put them:
+//! `audio/score/` with Sonomorph's studio (`sonomorph::advanced`). The bytes
+//! stay where the binary put them, and Sonomorph's mixer reads them:
 //! - the music and the stingers are QOA, 48 kHz stereo ([`studio`]),
-//!   decoded a slice at a time as they play (`qoa`);
+//!   decoded a slice at a time as they play;
 //! - the effects are 8-bit mu-law mono at [`CUE_SAMPLE_RATE`] ([`pcm`]),
 //!   read one sample at a time at the playback rate their pitch asks for.
 //!
 //! So a sound costs no memory beyond the binary itself.
 
-use super::mulaw::MULAW_TO_F32;
+use sonomorph::advanced::{Clip, Sound};
+#[cfg(all(test, feature = "audio"))]
+use sonomorph::chip8::mulaw;
 
 /// The rate `build.rs` renders cues at (its `SAMPLE_RATE`).
 pub const CUE_SAMPLE_RATE: f32 = 22_050.0;
@@ -161,7 +163,7 @@ impl Cue {
     }
 }
 
-/// The studio render for `cue`, QOA stereo (`src/audio/qoa.rs`): the music
+/// The studio render for `cue`, QOA stereo (`sonomorph::advanced::qoa`): the music
 /// and the stingers. `None` for an effect ([`pcm`]), and always without
 /// the `audio` feature.
 pub fn studio(cue: Cue) -> Option<&'static [u8]> {
@@ -200,49 +202,32 @@ pub fn pcm(cue: Cue) -> &'static [u8] {
     }
 }
 
-/// One embedded mu-law byte as a sample in `-1.0..1.0`.
-#[inline]
-pub fn sample(byte: u8) -> f32 {
-    MULAW_TO_F32[usize::from(byte)]
+/// How Sonomorph's mixer plays a cue: its studio render if it has one (the
+/// music and the stingers, QOA), else its effect (mu-law); and whether a
+/// music change waits for it.
+impl Sound for Cue {
+    fn clip(self) -> Clip {
+        studio(self).map_or_else(|| Clip::MuLaw(pcm(self)), Clip::Qoa)
+    }
+
+    fn holds_music(self) -> bool {
+        Cue::holds_music(self)
+    }
 }
 
 /// The mu-law bytes for full scale, positive and negative: no level track
 /// may reach them.
-#[cfg(test)]
+#[cfg(all(test, feature = "audio"))]
 const FULL_SCALE: [u8; 2] = [0x80, 0x00];
 
-#[cfg(test)]
+#[cfg(all(test, feature = "audio"))]
 mod tests {
     use super::*;
-
-    use crate::audio::mulaw::{mulaw_decode, mulaw_encode};
-
-    #[test]
-    fn mulaw_is_centered_symmetric_and_close() {
-        assert_eq!(mulaw_encode(0), 0xFF, "silence");
-        assert_eq!(sample(0xFF), 0.0);
-        assert!(sample(FULL_SCALE[0]) > 0.97 && sample(FULL_SCALE[1]) < -0.97);
-        assert_eq!(mulaw_encode(i16::MAX), FULL_SCALE[0]);
-        assert_eq!(mulaw_encode(i16::MIN), FULL_SCALE[1]);
-        // Every 16-bit sample comes back within half its segment's step: the
-        // error grows with the level, staying near 1/32 of it (~30 dB
-        // under the signal at every level, not just loud ones).
-        for s in (-32_768..=32_767).step_by(7) {
-            let s = s as i16;
-            let back = i32::from(mulaw_decode(mulaw_encode(s)));
-            let err = (back - i32::from(s)).abs();
-            assert!(
-                err <= 8 + i32::from(s).abs().min(32_635) / 30,
-                "{s} -> {back}"
-            );
-            assert!(back.signum() * i32::from(s).signum() >= 0, "sign of {s}");
-        }
-    }
 
     /// A cue's studio render, decoded, if it has one.
     #[cfg(feature = "audio")]
     fn studio_frames(cue: Cue) -> Option<Vec<[i16; 2]>> {
-        let mut q = crate::audio::qoa::QoaStream::new(studio(cue)?).unwrap();
+        let mut q = sonomorph::advanced::qoa::QoaStream::new(studio(cue)?).unwrap();
         Some(std::iter::from_fn(|| q.next_frame()).collect())
     }
 
@@ -270,7 +255,7 @@ mod tests {
             let pcm = pcm(cue);
             assert!(!pcm.is_empty(), "{cue:?} has no render");
             assert!(
-                pcm.iter().any(|&b| sample(b).abs() > 0.0625),
+                pcm.iter().any(|&b| mulaw::sample(b).abs() > 0.0625),
                 "{cue:?} is silent"
             );
         }
@@ -297,7 +282,7 @@ mod tests {
                 assert!(secs > 20.0, "{cue:?}: {secs:.1}s");
             } else {
                 assert!(secs < 8.0, "{cue:?}: {secs:.1}s");
-                let last = sample(*pcm.last().unwrap()).abs();
+                let last = mulaw::sample(*pcm.last().unwrap()).abs();
                 assert!(last > 0.5 / 128.0, "{cue:?} not trimmed");
             }
         }
@@ -312,7 +297,7 @@ mod tests {
             let cue = every_cue().find(|c| c.score_name() == Some(*name));
             assert!(cue.is_some(), "audio/score/{name}.score names no cue");
             assert_eq!(studio(cue.unwrap()), Some(*bytes));
-            let qoa = crate::audio::qoa::QoaStream::new(bytes)
+            let qoa = sonomorph::advanced::qoa::QoaStream::new(bytes)
                 .unwrap_or_else(|e| panic!("{name}: {e:?}"));
             assert_eq!((qoa.channels(), qoa.sample_rate()), (2, 48_000), "{name}");
         }
@@ -321,7 +306,7 @@ mod tests {
     }
 
     /// A studio loop starts with the predictor its own end leaves
-    /// (`audio/render.c`, `qoa_encode_seamless`): QOA's default cold start
+    /// (Sonomorph's `Render::to_qoa`, `qoa_encode_seamless`): QOA's default cold start
     /// would code the first slice coarsely and click at every wrap.
     #[cfg(feature = "audio")]
     #[test]
