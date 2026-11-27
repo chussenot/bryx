@@ -1,10 +1,12 @@
 //! The cue bank: every sound BRYX can make, as the PCM `build.rs` rendered
-//! from `audio/cues/*.abc` with BRYX's fork of the Electric Pulse engine.
-//! The bytes stay where the binary put them: 8-bit mu-law mono (`mulaw`),
-//! read and decoded one sample at a time by the mixer, so 33 music tracks
-//! cost no memory beyond the binary itself.
+//! from `audio/cues/*.abc` with Sonomorph's chip8 engine (the Electric
+//! Pulse fork that grew up here). The bytes stay where the binary put them:
+//! 8-bit mu-law mono, read and decoded one sample at a time by Sonomorph's
+//! mixer, so 33 music tracks cost no memory beyond the binary itself.
 
-use super::mulaw::MULAW_TO_F32;
+#[cfg(all(test, feature = "audio"))]
+use sonomorph::chip8::mulaw;
+use sonomorph::chip8::Sound;
 
 /// The rate `build.rs` renders cues at (its `SAMPLE_RATE`).
 pub const CUE_SAMPLE_RATE: f32 = 22_050.0;
@@ -162,44 +164,26 @@ pub fn pcm(cue: Cue) -> &'static [u8] {
     }
 }
 
-/// One embedded mu-law byte as a sample in `-1.0..1.0`.
-#[inline]
-pub fn sample(byte: u8) -> f32 {
-    MULAW_TO_F32[usize::from(byte)]
+/// How Sonomorph's mixer reads a cue: its embedded bytes, and whether a
+/// music change waits for it.
+impl Sound for Cue {
+    fn pcm(self) -> &'static [u8] {
+        pcm(self)
+    }
+
+    fn holds_music(self) -> bool {
+        Cue::holds_music(self)
+    }
 }
 
 /// The mu-law bytes for full scale, positive and negative: no level track
 /// may reach them.
-#[cfg(test)]
+#[cfg(all(test, feature = "audio"))]
 const FULL_SCALE: [u8; 2] = [0x80, 0x00];
 
-#[cfg(test)]
+#[cfg(all(test, feature = "audio"))]
 mod tests {
     use super::*;
-
-    use crate::audio::mulaw::{mulaw_decode, mulaw_encode};
-
-    #[test]
-    fn mulaw_is_centered_symmetric_and_close() {
-        assert_eq!(mulaw_encode(0), 0xFF, "silence");
-        assert_eq!(sample(0xFF), 0.0);
-        assert!(sample(FULL_SCALE[0]) > 0.97 && sample(FULL_SCALE[1]) < -0.97);
-        assert_eq!(mulaw_encode(i16::MAX), FULL_SCALE[0]);
-        assert_eq!(mulaw_encode(i16::MIN), FULL_SCALE[1]);
-        // Every 16-bit sample comes back within half its segment's step: the
-        // error grows with the level, staying near 1/32 of it (~30 dB
-        // under the signal at every level, not just loud ones).
-        for s in (-32_768..=32_767).step_by(7) {
-            let s = s as i16;
-            let back = i32::from(mulaw_decode(mulaw_encode(s)));
-            let err = (back - i32::from(s)).abs();
-            assert!(
-                err <= 8 + i32::from(s).abs().min(32_635) / 30,
-                "{s} -> {back}"
-            );
-            assert!(back.signum() * i32::from(s).signum() >= 0, "sign of {s}");
-        }
-    }
 
     #[cfg(feature = "audio")]
     fn every_cue() -> impl Iterator<Item = Cue> {
@@ -215,7 +199,7 @@ mod tests {
             let pcm = pcm(cue);
             assert!(!pcm.is_empty(), "{cue:?} has no render");
             assert!(
-                pcm.iter().any(|&b| sample(b).abs() > 0.0625),
+                pcm.iter().any(|&b| mulaw::sample(b).abs() > 0.0625),
                 "{cue:?} is silent"
             );
         }
@@ -233,7 +217,7 @@ mod tests {
                 assert!(secs > 20.0, "{cue:?}: {secs:.1}s");
             } else {
                 assert!(secs < 8.0, "{cue:?}: {secs:.1}s");
-                let last = sample(*pcm.last().unwrap()).abs();
+                let last = mulaw::sample(*pcm.last().unwrap()).abs();
                 assert!(last > 0.5 / 128.0, "{cue:?} not trimmed");
             }
         }

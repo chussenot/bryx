@@ -2,7 +2,7 @@
 """BRYX's score: 32 level tracks and a menu theme, written out as ABC.
 
     python3 audio/compose.py --check                       # the score lint only
-    python3 audio/compose.py --render /tmp/bryx-render     # lint, then rewrite audio/cues/music_*.abc
+    python3 audio/compose.py --render sonomorph-render     # lint, then rewrite audio/cues/music_*.abc
 
 The music lives here as *musical decisions*: three themes, the ways they
 are transformed and developed into phrases, a harmony per mode, a form per
@@ -1320,8 +1320,8 @@ def master(text: str, render: str, tmp: pathlib.Path) -> str:
 
 
 def main():
-    """`--check` runs the lint. `--render PATH` names a renderer built like
-    build.rs's (see docs/design/music.md, "Changing the music"): the lint
+    """`--check` runs the lint. `--render PATH` names Sonomorph's renderer,
+    `sonomorph-render` (see docs/design/music.md, "Changing the music"): the lint
     runs, then every track is mastered with it and written. The renderer
     is required: an unmastered score would clip."""
     import sys
@@ -1331,7 +1331,7 @@ def main():
     ok = check_score(tracks)
     if "--render" not in sys.argv:
         if "--check" not in sys.argv:
-            raise SystemExit("usage: compose.py --check | --render <path to a built audio/render.c>")
+            raise SystemExit("usage: compose.py --check | --render <path to sonomorph-render>")
         raise SystemExit(0 if ok else 1)
     if not ok:
         raise SystemExit("the score lint failed: nothing written")

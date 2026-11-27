@@ -325,11 +325,11 @@ reference; none of it is vendored.
 ## Changing the music
 
 1. Edit a recipe, a theme or a palette in `audio/compose.py`.
-2. Build the renderer:
-   `cc -std=c99 -O2 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -Iaudio/engine
-   audio/render.c audio/engine/*.c -lm -o /tmp/bryx-render`.
+2. Install the renderer, at the Sonomorph revision `Cargo.toml` pins:
+   `cargo install --git https://github.com/chussenot/sonomorph --rev <rev>
+   --features render sonomorph-render`.
 3. Run `python3 audio/compose.py --check` until the lint passes, then
-   `python3 audio/compose.py --render /tmp/bryx-render`.
+   `python3 audio/compose.py --render sonomorph-render`.
 4. Rebuild the game.
 
 The ABC files can also be edited by hand, but `compose.py` will overwrite

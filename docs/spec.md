@@ -210,11 +210,13 @@ never set them.
 
 **Sound (added after v1)**, designed in `docs/design/audio.md`:
 - Cues are ABC text files in `audio/cues/`. `build.rs` renders them at build
-  time with BRYX's fork of the Electric Pulse engine (`audio/engine/`, C99;
-  its PROVENANCE.md lists the changes), and the binary embeds the PCM as
-  8-bit mu-law: the game runs no C.
-- Playback goes through `cpal` (the default `audio` feature; justified in
-  `Cargo.toml`) into BRYX's own mixer (`src/audio/`): panned effects,
+  time with Sonomorph's chip8 engine (BRYX's fork of the Electric Pulse
+  engine, extracted to `chussenot/sonomorph`; its PROVENANCE.md lists the
+  changes), and the binary embeds the PCM as 8-bit mu-law: the game runs no
+  C.
+- Playback goes through Sonomorph's mixer and its `cpal` stream (the
+  default `audio` feature; justified in `Cargo.toml`), driven by BRYX's
+  director (`src/audio/`): panned effects,
   pitched by playback rate; stingers that duck the music; one music track
   per campaign level (`audio/compose.py`, `docs/design/music.md`),
   crossfaded, and a shuffled order for loaded levelsets.

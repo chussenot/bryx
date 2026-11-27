@@ -29,7 +29,7 @@ use crate::levels::BrickKind;
 use crate::rally::{self, Rally};
 
 use super::cues::{Cue, LEVEL_TRACKS};
-use super::mixer::Command;
+use super::Command;
 
 /// The player's sound setting, cycled with M.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,7 +181,7 @@ fn play(cue: Cue, gain: f32, x: f32) -> Command {
 
 fn pitched(cue: Cue, gain: f32, x: f32, pitch: f32) -> Command {
     Command::Play {
-        cue,
+        sound: cue,
         gain,
         pan: pan_for(x),
         pitch,
@@ -191,7 +191,7 @@ fn pitched(cue: Cue, gain: f32, x: f32, pitch: f32) -> Command {
 
 fn stinger(cue: Cue, gain: f32, duck: f32) -> Command {
     Command::Play {
-        cue,
+        sound: cue,
         gain,
         pan: 0.0,
         pitch: 1.0,
@@ -522,7 +522,7 @@ impl Director {
                 GameEvent::PowerUpCaught(kind) => out.push(match kind {
                     PowerUpKind::Tiny => play(Cue::Tiny, 0.55, paddle_x),
                     PowerUpKind::Player => Command::Play {
-                        cue: Cue::OneUp,
+                        sound: Cue::OneUp,
                         gain: 0.6,
                         pan: pan_for(paddle_x),
                         pitch: 1.0,
@@ -594,7 +594,7 @@ impl Director {
             let brick = matches!(
                 command,
                 Command::Play {
-                    cue: Cue::Brick,
+                    sound: Cue::Brick,
                     ..
                 }
             );
@@ -641,7 +641,7 @@ mod tests {
         commands
             .iter()
             .filter_map(|c| match c {
-                Command::Play { cue, .. } => Some(*cue),
+                Command::Play { sound: cue, .. } => Some(*cue),
                 _ => None,
             })
             .collect()
@@ -652,7 +652,7 @@ mod tests {
             .iter()
             .filter_map(|c| match c {
                 Command::Play {
-                    cue: Cue::Brick,
+                    sound: Cue::Brick,
                     pitch,
                     ..
                 } => Some(*pitch),
@@ -775,7 +775,7 @@ mod tests {
         let out = director.observe(&game, &[gave]);
         assert!(matches!(
             out[0],
-            Command::Play { cue: Cue::Armor, pitch, .. } if pitch == semitones(scale[4] - 12.0)
+            Command::Play { sound: Cue::Armor, pitch, .. } if pitch == semitones(scale[4] - 12.0)
         ));
         // And the collapse resolves on the root, low; the next one starts
         // its climb over.
@@ -850,7 +850,7 @@ mod tests {
         for event in events {
             for command in director.observe(&game, &[event]) {
                 if let Command::Play {
-                    cue: Cue::Brick | Cue::Armor,
+                    sound: Cue::Brick | Cue::Armor,
                     pitch,
                     ..
                 } = command
@@ -1000,7 +1000,7 @@ mod tests {
             .iter()
             .filter_map(|c| match *c {
                 Command::Play {
-                    cue: Cue::Explosion,
+                    sound: Cue::Explosion,
                     gain,
                     pan,
                     pitch,
@@ -1040,7 +1040,7 @@ mod tests {
             .iter()
             .filter_map(|c| match c {
                 Command::Play {
-                    cue: Cue::Explosion,
+                    sound: Cue::Explosion,
                     gain,
                     ..
                 } => Some(*gain),
@@ -1086,7 +1086,7 @@ mod tests {
                 matches!(
                     c,
                     Command::Play {
-                        cue: Cue::Paddle,
+                        sound: Cue::Paddle,
                         ..
                     }
                 )
@@ -1201,7 +1201,7 @@ mod tests {
         let out = director.observe(&game, &[E::LevelCleared]);
         assert!(matches!(
             out.first(),
-            Some(Command::Play { cue: Cue::LevelClear, duck, .. }) if *duck > 0.0
+            Some(Command::Play { sound: Cue::LevelClear, duck, .. }) if *duck > 0.0
         ));
         let out = director.observe(&game, &[E::LevelCleared, E::Victory]);
         assert_eq!(
@@ -1226,7 +1226,9 @@ mod tests {
         commands
             .iter()
             .filter_map(|c| match *c {
-                Command::Play { cue, pan, .. } => Some((cue, pan)),
+                Command::Play {
+                    sound: cue, pan, ..
+                } => Some((cue, pan)),
                 _ => None,
             })
             .collect()
@@ -1414,7 +1416,7 @@ mod tests {
         let out = director.observe(&game, &[E::GameOver]);
         assert!(matches!(
             out.iter().find(|c| matches!(c, Command::Play { .. })),
-            Some(Command::Play { cue: Cue::GameOver, duck, .. }) if *duck > 0.0
+            Some(Command::Play { sound: Cue::GameOver, duck, .. }) if *duck > 0.0
         ));
         game.state = GameState::Playing;
         game.ball.attached = true;

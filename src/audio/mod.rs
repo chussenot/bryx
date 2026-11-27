@@ -1,33 +1,30 @@
 //! Sound (docs/design/audio.md).
 //!
 //! - `cues`: the sounds, rendered at build time from `audio/cues/*.abc` by
-//!   BRYX's fork of the Electric Pulse engine (`build.rs`), stored as
-//!   mu-law (`mulaw`);
+//!   Sonomorph's chip8 engine (`build.rs`), stored as mu-law;
 //! - `director`: which sound plays when, where and at what pitch: pure,
-//!   tested;
-//! - `mixer`: effects, stingers and music into one stereo stream: pure,
-//!   tested;
-//! - `output`: the `cpal` device stream that runs the mixer.
+//!   tested.
+//!
+//! The mixer (effects, stingers and music into one stereo stream) and the
+//! device stream that runs it are Sonomorph's (`sonomorph::chip8`), the
+//! crate BRYX's sound engine was extracted to: BRYX names its sounds
+//! (`Cue`) and decides when they play; Sonomorph renders and plays them.
 //!
 //! Like the renderers, sound only *reads* the game: `main.rs` hands each
 //! tick's events over before draining them (events.rs's contract), and
 //! nothing here can change what happens.
 
 // Without the `audio` feature there is no device to feed, so the bank and
-// the mixer are only exercised by their tests.
+// the director are only exercised by their tests.
 #[cfg_attr(not(feature = "audio"), allow(dead_code))]
 mod cues;
 #[cfg_attr(not(feature = "audio"), allow(dead_code))]
 mod director;
-#[cfg_attr(not(feature = "audio"), allow(dead_code))]
-mod mixer;
-mod mulaw;
-#[cfg(feature = "audio")]
-mod output;
-#[cfg(all(test, feature = "audio"))]
-mod probes;
 
 pub use director::SoundMode;
+
+/// What the director asks Sonomorph's mixer to do, in BRYX's cues.
+pub(crate) type Command = sonomorph::chip8::Command<cues::Cue>;
 
 use crate::events::GameEvent;
 use crate::game::Game;
@@ -36,15 +33,21 @@ pub struct Audio {
     director: director::Director,
     mode: SoundMode,
     #[cfg(feature = "audio")]
-    output: Option<output::Output>,
+    output: Option<sonomorph::chip8::Output<cues::Cue>>,
 }
 
 impl Audio {
     /// Opens the audio device. Without one, or without the `audio`
     /// feature, every call is a no-op and the game plays silent.
     pub fn new(mode: SoundMode) -> Self {
+        // The mixer reads the cues at the rate build.rs rendered them at.
         #[cfg(feature = "audio")]
-        let output = match output::Output::open() {
+        let config = sonomorph::chip8::MixerConfig {
+            sample_rate: cues::CUE_SAMPLE_RATE,
+            ..Default::default()
+        };
+        #[cfg(feature = "audio")]
+        let output = match sonomorph::chip8::Output::open_with(config) {
             Ok(output) => {
                 output.send(mode.command());
                 Some(output)
