@@ -46,18 +46,20 @@ lyon_tessellation = "1.0.23"
 [features]
 default = ["audio"]
 typesafe = ["dep:judgment", "dep:tokio", "dep:serde_json"]
-# Sound (src/audio/): cues rendered at build time by BRYX's fork of the
-# Electric Pulse engine (build.rs, audio/), played through cpal. Without it the game
-# is silent and needs neither a C compiler nor ALSA headers.
-audio = ["dep:cpal", "dep:cc"]
+# Sound (src/audio/): cues rendered at build time by Sonomorph's chip8 engine
+# (build.rs) and played through its mixer and cpal stream. Without it the
+# game is silent and needs neither a C compiler nor ALSA headers.
+audio = ["sonomorph/output", "dep:sonomorph"]
 
-[dependencies.cpal]
-# Audio output: one stream, BRYX's own mixer in its callback
-# (src/audio/output.rs). The same choice Electric Pulse made for direct
-# playback (its ADR-0001): a thin, cross-platform device layer, no
-# decoding or engine of its own. On Linux it needs libasound2-dev.
-version = "0.17.3"
-optional = true
+[dependencies.sonomorph]
+# BRYX's sound engine, extracted to its own crate so other games can use
+# it (chussenot/sonomorph): the mixer the director speaks to, always built
+# (pure Rust, no features), and with `audio` its device stream through cpal
+# (`output`; on Linux it needs libasound2-dev). Replaces the cpal dependency
+# and src/audio/{mixer,output,mulaw}.rs.
+git = "https://github.com/chussenot/sonomorph"
+rev = "3ffcb606a89cec4793701109452d42b59c90e887"
+default-features = false
 
 [build-dependencies.wesl]
 # The effects' shaders are WESL modules (src/shaders/): shared color,
@@ -68,10 +70,13 @@ optional = true
 # output is independent of the wgpu version. Needs Rust 1.97.1 or later.
 version = "0.6.0"
 
-[build-dependencies.cc]
-# Finds the platform's C compiler for build.rs, which builds the Electric
-# Pulse engine (BRYX's fork) into a host tool that renders audio/cues/*.abc.
-version = "1.1"
+[build-dependencies.sonomorph]
+# The same crate's `render` feature, for build.rs: the chip8 engine (the
+# Electric Pulse fork that lived in audio/engine/) renders audio/cues/*.abc.
+# Replaces the cc build-dependency and the C sources; it needs a C compiler.
+git = "https://github.com/chussenot/sonomorph"
+rev = "3ffcb606a89cec4793701109452d42b59c90e887"
+features = ["render"]
 optional = true
 
 [dependencies.judgment]

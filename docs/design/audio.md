@@ -42,26 +42,28 @@ Four ideas shape everything below:
 
 ```mermaid
 flowchart LR
-  ABC["audio/cues/*.abc<br/>(text, original)"] -->|build.rs| Tool["Electric Pulse engine<br/>(BRYX's fork, C host tool)"]
+  ABC["audio/cues/*.abc<br/>(text, original)"] -->|build.rs| Tool["sonomorph::chip8::render_file<br/>(the Electric Pulse fork)"]
   Tool -->|16-bit| PCM["8-bit mu-law<br/>embedded in the binary"]
   Game[game.rs events + state] --> Dir["director.rs<br/>what, where, which pitch"]
-  Dir -->|commands| Mix["mixer.rs<br/>voices, music, duck, limiter"]
+  Dir -->|commands| Mix["sonomorph::chip8::Mixer<br/>voices, music, duck, limiter"]
   PCM --> Mix
-  Mix --> Out["output.rs<br/>cpal stream"]
+  Mix --> Out["sonomorph::chip8::Output<br/>cpal stream"]
 ```
 
-- **Render at build time, not at runtime.** `build.rs` compiles the
-  engine (`audio/engine/`, BRYX's fork: see its PROVENANCE.md) and
-  `audio/render.c` into a host tool, then renders each cue to 16-bit PCM
-  and encodes it to mu-law in `OUT_DIR`; the binary embeds the bytes. The game runs no C and no
-  `unsafe` FFI, needs no audio files beside it, and every build sounds the
-  same. A sound is an `.abc` text file: edit it, rebuild, hear it.
+- **Render at build time, not at runtime.** `build.rs` renders each cue
+  to 16-bit PCM with Sonomorph's chip8 engine (BRYX's fork, extracted to
+  `chussenot/sonomorph`: see its `engine/chip8/PROVENANCE.md`) and encodes
+  it to mu-law in `OUT_DIR`; the binary embeds the bytes. The game runs no
+  C and no `unsafe` FFI, needs no audio files beside it, and every build
+  sounds the same. A sound is an `.abc` text file: edit it, rebuild, hear
+  it.
 - **One renderer, many notes.** Pitch is playback rate, so one rendered
   brick note plays the whole pentatonic scale and one paddle knock every
   speed.
 - **Playback through `cpal`**, the backend Electric Pulse chose for direct
-  playback (its ADR-0001). It is a device layer only; the mixer is BRYX's
-  own, in `src/audio/mixer.rs`:
+  playback (its ADR-0001). It is a device layer only; the mixer was BRYX's
+  own and is now Sonomorph's (`sonomorph::chip8::Mixer`, BRYX's levels as
+  its defaults):
   - up to 32 voices, the oldest stolen beyond that;
   - music crossfades over 1.2 s;
   - stingers duck the music to 25%;
@@ -90,7 +92,8 @@ flowchart LR
 
 BRYX began with Electric Pulse's engine unmodified. Writing the score
 exposed three rendering problems that no composition could fix, so BRYX
-forked the engine (`audio/engine/PROVENANCE.md` lists every change):
+forked the engine (Sonomorph's `engine/chip8/PROVENANCE.md`, where the
+fork now lives, lists every change):
 - **Voices rendered at 3–5 bits.** The engine synthesized each voice in
   8-bit output steps and truncated every envelope and effect multiply.
   Once mastered, the pad swung ±3 steps, and the arpeggio and counter ±4.
@@ -143,7 +146,8 @@ Rebalanced against the phase 1 score, voice by voice, every voice lands
 within about 1.5 dB. Each track's quietest bar now sits a median 13.1 dB
 under its loudest, against 9.8 before. Every track still masters to
 -19.0 dBFS, and the in-game mix measures as before. Nine probe tests in
-`src/audio/probes.rs` check the fork's features on what it renders.
+Sonomorph's `tests/probes.rs` (moved from `src/audio/probes.rs`) check the
+fork's features on what it renders.
 
 **Phase 3: room, tempo and the seam.**
 - **Seamless loops.** Every track was rendered once, from silence, so at
@@ -182,8 +186,8 @@ still pitched by the director) and its loudness:
 away again: in the score's quietest bars (median -28 dBFS) it leaves the
 signal 25 dB above its noise. G.711 mu-law spends the same byte
 logarithmically, so those bars keep 37 dB. The embedded audio stays about
-22 MB. `src/audio/mulaw.rs` is the one codec: `build.rs` includes it to
-encode, and the mixer decodes it through a 256-entry table.
+22 MB. `sonomorph::chip8::mulaw` is the one codec: `build.rs` encodes with
+it, and the mixer decodes it through a 256-entry table.
 
 ## Cues
 
@@ -236,8 +240,9 @@ track for track ([`music.md`](music.md)).
 
 ## Building
 
-- The default `audio` feature needs a C compiler (any `cc` finds), and on
-  Linux the ALSA headers (`libasound2-dev`); CI installs them.
+- The default `audio` feature needs a C compiler (Sonomorph's `render`
+  feature builds the engine for `build.rs`), and on Linux the ALSA headers
+  (`libasound2-dev`); CI installs them.
 - `--no-default-features` builds a silent game with neither.
 
 ## Open
@@ -249,7 +254,8 @@ track for track ([`music.md`](music.md)).
   form, or a B-side per level, would cost about 0.7 MB of binary per
   track.
 - **Tuplets.** The engine's grid is the sixteenth note, so a triplet
-  would need a finer grid for the whole song (`audio/engine/PROVENANCE.md`).
+  would need a finer grid for the whole song (Sonomorph's
+  `engine/chip8/PROVENANCE.md`).
 - **Longer forms.** The engine now reaches 256 bars a track. What a longer
   form costs is binary size, about 0.7 MB per 16 bars per track.
 - **A listening pass.** Every level and loudness figure here was measured

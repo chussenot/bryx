@@ -118,7 +118,9 @@ budget, and the measurements.
 ## Sound
 
 BRYX's music and effects come from the
-[Electric Pulse](https://github.com/chussenot/electric-pulse) engine. They
+[Electric Pulse](https://github.com/chussenot/electric-pulse) engine, as
+BRYX forked it and extracted it to
+[Sonomorph](https://github.com/chussenot/sonomorph), BRYX's sound library. They
 are composed as ABC text in `audio/cues/` and rendered at build time, so
 the game runs no C at play time. Bricks broken in a rally climb the E minor
 pentatonic scale in time with the music, and every effect is panned to
