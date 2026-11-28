@@ -77,7 +77,7 @@ impl AnyRenderer {
         }
     }
 
-    fn set_sound(&mut self, label: Option<&'static str>) {
+    fn set_sound(&mut self, label: Option<hud::SoundKeys>) {
         match self {
             Self::Classic(r) => r.set_sound(label),
             Self::ThreeD(r) => r.set_sound(label),
@@ -461,6 +461,16 @@ impl ApplicationHandler for App {
                         audio.cycle_mode();
                     }
                 }
+                // T switches the soundtrack (orchestral, 8-bit): an interface
+                // key too, so replays and their hashes never hear it.
+                if physical_key == PhysicalKey::Code(KeyCode::KeyT)
+                    && state == ElementState::Pressed
+                    && !repeat
+                {
+                    if let Some(audio) = &mut self.audio {
+                        audio.cycle_soundtrack();
+                    }
+                }
                 if let (PhysicalKey::Code(code), ElementState::Pressed) = (physical_key, state) {
                     self.interface_key(code, repeat);
                 }
@@ -469,7 +479,12 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 if let Some(renderer) = &mut self.renderer {
                     renderer.set_record(self.record);
-                    renderer.set_sound(self.audio.as_ref().and_then(audio::Audio::label));
+                    renderer.set_sound(self.audio.as_ref().and_then(|audio| {
+                        Some(hud::SoundKeys {
+                            mode: audio.label()?,
+                            soundtrack: audio.soundtrack_label()?,
+                        })
+                    }));
                     renderer.set_menu(&self.menu_view);
                     let now = Instant::now();
                     let dt = now.duration_since(self.fx_clock).as_secs_f32();
@@ -798,7 +813,10 @@ fn main() {
         app.playtest = open_playtest_log(path, args.autopilot);
     }
     app.show_menu();
-    app.audio = Some(audio::Audio::new(audio::SoundMode::from_env()));
+    app.audio = Some(audio::Audio::new(
+        audio::SoundMode::from_env(),
+        audio::Soundtrack::from_env(),
+    ));
     if args.autopilot {
         let autopilot = build_autopilot(args.autopilot_every.unwrap_or(1));
         println!("autopilot: {}", autopilot.describe());

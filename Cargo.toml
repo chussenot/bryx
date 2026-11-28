@@ -72,14 +72,17 @@ default-features = false
 version = "0.6.0"
 
 [build-dependencies.sonomorph]
-# The same crate's `render-advanced` feature, for build.rs: the studio
-# (which lived in audio/engine/) and its instrument library (the desk, the
-# orchestra and its VSCO samples, the synth palette, which lived in
-# audio/instruments/ and audio/samples/) render audio/score/**/*.score.
+# The same crate, for build.rs, rendering both soundtracks:
+# - `render-advanced`: the studio (which lived in audio/engine/) and its
+#   instrument library (the desk, the orchestra and its VSCO samples, the
+#   synth palette, which lived in audio/instruments/ and audio/samples/)
+#   render audio/score/**/*.score, the orchestral soundtrack;
+# - `render`: the chip8 engine (the Electric Pulse fork) renders
+#   audio/cues/*.abc, the 8-bit soundtrack.
 # Replaces the cc build-dependency and the C sources; it needs a C compiler.
 git = "https://github.com/chussenot/sonomorph"
 rev = "3c2eaf0ea03a673a339ebf35af7b074d683e3981"
-features = ["render-advanced"]
+features = ["render-advanced", "render"]
 optional = true
 
 [dependencies.judgment]

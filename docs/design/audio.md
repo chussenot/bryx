@@ -52,10 +52,15 @@ flowchart LR
   Score -->|build.rs| Tool["the studio<br/>(sonomorph::advanced)"]
   Tool -->|music, stingers| QOA["QOA, 48 kHz stereo"]
   Tool -->|effects| Mu["mu-law, 22 kHz mono"]
+  Notes -->|--render| ABC["audio/cues/*.abc<br/>(8-bit, committed)"]
+  ABC -->|build.rs| Chip["the chip8 engine<br/>(sonomorph::chip8)"]
+  Chip -->|everything| Mu8["mu-law, 22 kHz mono"]
   Game[game.rs events + state] --> Dir["director.rs<br/>what, where, which pitch"]
-  Dir -->|commands| Mix["sonomorph::advanced::Mixer<br/>voices, music, duck, limiter"]
+  Dir -->|cues| Audio["Audio<br/>each cue in the soundtrack picked (T)"]
+  Audio -->|renditions| Mix["sonomorph::advanced::Mixer<br/>voices, music, duck, limiter"]
   QOA --> Mix
   Mu --> Mix
+  Mu8 --> Mix
   Mix --> Out["sonomorph::advanced::Output<br/>cpal stream"]
 ```
 
@@ -220,29 +225,63 @@ against new:
   (the menu theme, then each level's, by name), and it plays in place of
   the menu theme while the row is highlighted, crossfading like any music
   change. Space starts no run there.
-- **M** cycles the sound: on, effects only, off. The menu and pause
-  screens show the current setting beside the key.
-- `BRYX_SOUND=effects` or `BRYX_SOUND=off` sets the starting mode.
+- **M** cycles the sound: on, effects only, off. **T** switches the
+  soundtrack, orchestral or 8-bit (below). The menu and pause screens show
+  both settings beside their keys, on one line.
+- `BRYX_SOUND=effects` or `BRYX_SOUND=off` sets the starting mode;
+  `BRYX_SOUNDTRACK=8bit` the starting soundtrack.
 - No device (a headless machine) means one warning and a silent game,
   never a crash.
 - Every cue has a visual counterpart, so no information is sound-only.
 
+## Two soundtracks
+
+The score BRYX first shipped, rendered by Sonomorph's chip8 engine from
+ABC text in `audio/cues/`, plays as a second soundtrack: the same notes
+(`audio/compose.py` writes both), its own music, stingers and effects.
+T switches the whole set at once, because each was balanced on its own:
+the orchestral effects against the orchestral music, the chip effects
+against the chip music. A mix of the two would put effects against music
+they were never measured with.
+
+- **What the mixer plays.** The director speaks in cues; `Audio` hands the
+  mixer each as a `Rendition`, a cue in the soundtrack picked. Two
+  renditions of one cue are two sounds to the mixer, so a switch
+  crossfades the playing track to its other rendering, and anything
+  already sounding finishes in the soundtrack it started in.
+- **The 8-bit set is the old one, byte for byte.** Its 56 files are what
+  the game embedded when the chip score was its only one, and Sonomorph's
+  mixer plays them at the same levels: the same `MixerConfig`, gains and
+  soft limiter. One difference: a track change crossfades at equal power
+  (the studio mixer's curve) rather than linearly.
+- **The brick.** Every brick note (the rally's, the collapse's, the
+  keystone's) is stated at its 8-bit level and plays louder by the same
+  ratio in the orchestral set (`Soundtrack::brick`): the studio brick is
+  spikier, 5.6 dB quieter over its first 30 ms at the same peak, so the
+  rally's 0.6 becomes 1.1.
+- **One beat, one mode.** The visuals land on the level-clear and warp
+  beats, and the rally harmonizes with each track's mode. `build.rs` reads
+  both from the scores and refuses to build if the 8-bit cue of the same
+  name keeps another meter or another mode.
+
 ## Building
 
 - The default `audio` feature needs a C compiler (Sonomorph's `render`
-  feature builds the engine for `build.rs`), and on Linux the ALSA headers
-  (`libasound2-dev`); CI installs them.
+  and `render-advanced` features build both engines for `build.rs`), and
+  on Linux the ALSA headers (`libasound2-dev`); CI installs them.
 - `--no-default-features` builds a silent game with neither.
 - A cold build renders the score in about 70 s on four cores, in parallel.
   Renders are cached in `OUT_DIR` under a hash of each score and of
   everything a render reads, so only what changed renders again.
-- The release binary is 58 MB (40 MB with the chip score).
+- The release binary is about 81 MB: 40 MB before the orchestral score,
+  58 MB with it alone.
 
 | Embedded audio | Size |
 |---|---|
 | 33 music loops (27–42 s each), QOA | 38 MB |
 | 5 stingers, QOA | 1.0 MB |
 | 18 effects, mu-law | 0.1 MB |
+| The 8-bit soundtrack: 56 cues, mu-law | 23 MB |
 
 ## Changing a sound
 
@@ -254,6 +293,10 @@ against new:
   the score lint first and refuses a note outside a track's mode or a
   texture too dense to hear. Commit the scores; `cargo build` renders
   them.
+- **The 8-bit tracks:** `python3 audio/compose.py --render sonomorph-render`
+  rewrites `audio/cues/music_*.abc` from the same notes, mastered with
+  Sonomorph's renderer (`docs/design/music.md`, "Changing the music"). The
+  8-bit effects and stingers are hand-written ABC in `audio/cues/`.
 - To hear one score: `sonomorph-render x.score x.wav` (`cargo install --git
   https://github.com/chussenot/sonomorph --rev <the pinned rev> --features
   render,render-advanced sonomorph-render`; `.qoa`, `.f32` and `.s16` work

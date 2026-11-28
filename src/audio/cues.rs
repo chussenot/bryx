@@ -1,14 +1,21 @@
-//! The cue bank: every sound BRYX can make, as `build.rs` rendered it from
-//! `audio/score/` with Sonomorph's studio (`sonomorph::advanced`). The bytes
-//! stay where the binary put them, and Sonomorph's mixer reads them:
-//! - the music and the stingers are QOA, 48 kHz stereo ([`studio`]),
-//!   decoded a slice at a time as they play;
-//! - the effects are 8-bit mu-law mono at [`CUE_SAMPLE_RATE`] ([`pcm`]),
-//!   read one sample at a time at the playback rate their pitch asks for.
+//! The cue bank: every sound BRYX can make, in both of its soundtracks, as
+//! `build.rs` rendered them with Sonomorph. The bytes stay where the binary
+//! put them, and Sonomorph's mixer reads them:
+//! - the orchestral soundtrack, from `audio/score/` by the studio
+//!   (`sonomorph::advanced`): the music and the stingers are QOA, 48 kHz
+//!   stereo ([`studio`]), decoded a slice at a time as they play; the
+//!   effects are 8-bit mu-law mono at [`CUE_SAMPLE_RATE`] ([`pcm`]), read
+//!   one sample at a time at the playback rate their pitch asks for;
+//! - the 8-bit soundtrack, from `audio/cues/` by the chip8 engine
+//!   (`sonomorph::chip8`): every cue is mu-law mono at [`CUE_SAMPLE_RATE`]
+//!   ([`chip`]).
 //!
-//! So a sound costs no memory beyond the binary itself.
+//! A [`Rendition`] is a cue in one soundtrack: what the mixer plays. So a
+//! sound costs no memory beyond the binary itself.
 
 use sonomorph::advanced::{Clip, Sound};
+
+use super::director::Soundtrack;
 #[cfg(all(test, feature = "audio"))]
 use sonomorph::chip8::mulaw;
 
@@ -19,7 +26,8 @@ pub const CUE_SAMPLE_RATE: f32 = 22_050.0;
 pub const LEVEL_TRACKS: u8 = 32;
 
 /// One sound. Every variant but `Level` names a score under `audio/score/`
-/// (`file`); `Level(n)` is `music_NN.score`, the track for level `n`.
+/// and an ABC file under `audio/cues/` (`file`); `Level(n)` is `music_NN`,
+/// the track for level `n`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Cue {
     // Effects
@@ -142,6 +150,7 @@ impl Cue {
 mod rendered {
     include!(concat!(env!("OUT_DIR"), "/cues.rs"));
     include!(concat!(env!("OUT_DIR"), "/scores.rs"));
+    include!(concat!(env!("OUT_DIR"), "/chip.rs"));
 }
 
 /// `music_01`..`music_32` without formatting a string: the audio thread
@@ -202,16 +211,54 @@ pub fn pcm(cue: Cue) -> &'static [u8] {
     }
 }
 
-/// How Sonomorph's mixer plays a cue: its studio render if it has one (the
-/// music and the stingers, QOA), else its effect (mu-law); and whether a
-/// music change waits for it.
-impl Sound for Cue {
+/// A cue's 8-bit render: mu-law mono at [`CUE_SAMPLE_RATE`], from
+/// `audio/cues/<name>.abc` (effects and stingers trimmed of trailing
+/// silence, music loops whole). Empty for a level with no track, and
+/// without the `audio` feature.
+pub fn chip(cue: Cue) -> &'static [u8] {
+    #[cfg(feature = "audio")]
+    {
+        let Some(name) = cue.score_name() else {
+            return &[];
+        };
+        rendered::CHIP
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, pcm)| *pcm)
+            .unwrap_or(&[])
+    }
+    #[cfg(not(feature = "audio"))]
+    {
+        let _ = cue.score_name();
+        &[]
+    }
+}
+
+/// A cue as one soundtrack renders it: what the mixer plays. Two
+/// renditions of the same cue are different sounds to it, so changing the
+/// soundtrack crossfades the music like changing the track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Rendition {
+    pub soundtrack: Soundtrack,
+    pub cue: Cue,
+}
+
+/// How Sonomorph's mixer plays a rendition: in the orchestral soundtrack,
+/// the cue's studio render if it has one (the music and the stingers,
+/// QOA), else its effect (mu-law); in the 8-bit one, its chip8 render. A
+/// music change waits for the same cues in both.
+impl Sound for Rendition {
     fn clip(self) -> Clip {
-        studio(self).map_or_else(|| Clip::MuLaw(pcm(self)), Clip::Qoa)
+        match self.soundtrack {
+            Soundtrack::Orchestral => {
+                studio(self.cue).map_or_else(|| Clip::MuLaw(pcm(self.cue)), Clip::Qoa)
+            }
+            Soundtrack::EightBit => Clip::MuLaw(chip(self.cue)),
+        }
     }
 
     fn holds_music(self) -> bool {
-        Cue::holds_music(self)
+        self.cue.holds_music()
     }
 }
 
@@ -347,5 +394,92 @@ mod tests {
             let hot = pcm.iter().filter(|b| FULL_SCALE.contains(b)).count();
             assert_eq!(hot, 0, "level {n} clips");
         }
+    }
+
+    /// The 8-bit soundtrack is whole: every cue has a chip8 render, audible,
+    /// and nothing under `audio/cues/` is left without a cue to play it.
+    #[cfg(feature = "audio")]
+    #[test]
+    fn every_cue_has_an_audible_8_bit_render() {
+        for cue in every_cue() {
+            let pcm = chip(cue);
+            assert!(!pcm.is_empty(), "{cue:?} has no 8-bit render");
+            assert!(
+                pcm.iter().any(|&b| mulaw::sample(b).abs() > 0.0625),
+                "{cue:?} is silent in 8-bit"
+            );
+        }
+        for (name, bytes) in rendered::CHIP {
+            let cue = every_cue().find(|c| c.score_name() == Some(*name));
+            assert!(cue.is_some(), "audio/cues/{name}.abc names no cue");
+            assert_eq!(chip(cue.unwrap()), *bytes);
+        }
+        assert_eq!(rendered::CHIP.len(), every_cue().count());
+        assert!(chip(Cue::Level(0)).is_empty() && chip(Cue::Level(33)).is_empty());
+    }
+
+    #[cfg(feature = "audio")]
+    #[test]
+    fn eight_bit_effects_are_trimmed_short_and_music_loops_are_long() {
+        for cue in every_cue() {
+            let pcm = chip(cue);
+            let secs = pcm.len() as f32 / CUE_SAMPLE_RATE;
+            if cue.is_music() {
+                assert!(secs > 20.0, "{cue:?}: {secs:.1}s");
+            } else {
+                assert!(secs < 8.0, "{cue:?}: {secs:.1}s");
+                let last = mulaw::sample(*pcm.last().unwrap()).abs();
+                assert!(last > 0.5 / 128.0, "{cue:?} not trimmed");
+            }
+        }
+    }
+
+    /// The 8-bit score is mastered (`audio/compose.py --render`): no level
+    /// track clips.
+    #[cfg(feature = "audio")]
+    #[test]
+    fn no_8_bit_music_track_clips() {
+        for n in 1..=LEVEL_TRACKS {
+            let hot = chip(Cue::Level(n))
+                .iter()
+                .filter(|b| FULL_SCALE.contains(b))
+                .count();
+            assert_eq!(hot, 0, "8-bit level {n} clips");
+        }
+    }
+
+    /// A rendition plays its own soundtrack's render of its cue, never the
+    /// other's.
+    #[cfg(feature = "audio")]
+    #[test]
+    fn a_rendition_plays_its_soundtracks_render() {
+        let play = |soundtrack, cue| Rendition { soundtrack, cue }.clip();
+        for cue in every_cue() {
+            match (play(Soundtrack::Orchestral, cue), studio(cue)) {
+                (Clip::Qoa(bytes), Some(qoa)) => assert_eq!(bytes, qoa, "{cue:?}"),
+                (Clip::MuLaw(bytes), None) => assert_eq!(bytes, pcm(cue), "{cue:?}"),
+                _ => panic!("{cue:?}: orchestral plays the other kind of clip"),
+            }
+            match play(Soundtrack::EightBit, cue) {
+                Clip::MuLaw(bytes) => {
+                    assert_eq!(bytes, chip(cue), "{cue:?}");
+                    assert_ne!(bytes, pcm(cue), "{cue:?} plays the orchestral effect");
+                }
+                Clip::Qoa(_) => panic!("{cue:?}: 8-bit plays a QOA clip"),
+            }
+        }
+        let held = Rendition {
+            soundtrack: Soundtrack::EightBit,
+            cue: Cue::Victory,
+        };
+        assert!(held.holds_music());
+        assert_ne!(
+            held,
+            Rendition {
+                soundtrack: Soundtrack::Orchestral,
+                cue: Cue::Victory,
+            },
+            "the same cue in the other soundtrack is another sound"
+        );
     }
 }

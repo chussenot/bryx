@@ -214,12 +214,18 @@ never set them.
   meter read from the cue.
 
 **Sound (added after v1)**, designed in `docs/design/audio.md`:
-- Sounds are `.score` text files in `audio/score/`. `build.rs` renders them
-  at build time with Sonomorph's studio (BRYX's, extracted to
-  `chussenot/sonomorph`; see its `engine/advanced/PROVENANCE.md`) from a
-  CC0 orchestral sample set (its `library/`), and
-  the binary embeds the audio: music and stingers as 48 kHz stereo QOA,
-  effects as 8-bit mu-law. The game runs no C.
+- Two soundtracks on the same notes, each a complete set of music,
+  stingers and effects:
+  - orchestral (the default): `.score` text files in `audio/score/`,
+    rendered at build time by Sonomorph's studio (BRYX's, extracted to
+    `chussenot/sonomorph`; see its `engine/advanced/PROVENANCE.md`) from a
+    CC0 orchestral sample set (its `library/`); music and stingers embedded
+    as 48 kHz stereo QOA, effects as 8-bit mu-law;
+  - 8-bit: ABC text files in `audio/cues/`, rendered at build time by
+    Sonomorph's chip8 engine (BRYX's fork of Electric Pulse; its
+    `engine/chip8/PROVENANCE.md`), embedded as 8-bit mu-law.
+
+  The game runs no C.
 - Playback goes through Sonomorph's mixer and its `cpal` stream (the
   default `audio` feature; justified in `Cargo.toml`), driven by BRYX's
   director (`src/audio/`): panned effects,
@@ -234,7 +240,11 @@ never set them.
   sets the start); the menu shows which is drawing. An interface key,
   never simulation input, and not kept between sessions.
 - M cycles the sound: on, effects only, off (`BRYX_SOUND` sets the
-  start). No device means a silent game, never a crash.
+  start). T switches the soundtrack, orchestral or 8-bit
+  (`BRYX_SOUNDTRACK=8bit` sets the start); the music crossfades to the
+  other's rendering of the same track. Both are interface keys, never
+  simulation input, and not kept between sessions. No device means a
+  silent game, never a crash.
   `--no-default-features` builds a silent game with no C compiler and no
   ALSA.
 

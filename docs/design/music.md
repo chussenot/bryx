@@ -348,11 +348,21 @@ reference; none of it is vendored.
 
 ## Changing the music
 
+Both soundtracks play the notes in `audio/compose.py`, so a change to a
+recipe or a theme is a change to both: regenerate both.
+
 1. Edit a recipe or a theme in `audio/compose.py`, or the orchestration in
    `audio/compose_studio.py`.
-2. Run `python3 audio/compose_studio.py`. It lints, then rewrites
-   `audio/score/`.
-3. Rebuild the game: `build.rs` renders what changed.
+2. The orchestral soundtrack: run `python3 audio/compose_studio.py`. It
+   lints, then rewrites `audio/score/`.
+3. The 8-bit soundtrack: install the renderer at the Sonomorph revision
+   `Cargo.toml` pins, `cargo install --git
+   https://github.com/chussenot/sonomorph --rev <rev> --features render
+   sonomorph-render`, then run `python3 audio/compose.py --render
+   sonomorph-render`. It lints, then rewrites and masters
+   `audio/cues/music_*.abc`.
+4. Rebuild the game: `build.rs` renders what changed, and refuses a track
+   whose two soundtracks name different modes.
 
 The scores can be edited by hand, but `compose_studio.py` will overwrite
 them on its next run. `python3 audio/compose_studio.py --reference`
