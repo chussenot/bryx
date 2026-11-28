@@ -117,12 +117,12 @@ budget, and the measurements.
 
 ## Sound
 
-BRYX's music and effects come from the
-[Electric Pulse](https://github.com/chussenot/electric-pulse) engine, as
-BRYX forked it and extracted it to
-[Sonomorph](https://github.com/chussenot/sonomorph), BRYX's sound library. They
-are composed as ABC text in `audio/cues/` and rendered at build time, so
-the game runs no C at play time. Bricks broken in a rally climb the E minor
+BRYX has a cinematic electronic-orchestral score: a sampled orchestra
+(a CC0 subset of VSCO 2 Community Edition) against analog-style synths.
+Music and effects are composed as text in `audio/score/` and rendered at
+build time by BRYX's studio renderer, extracted to
+[Sonomorph](https://github.com/chussenot/sonomorph), BRYX's sound library,
+so the game runs no C at play time. Bricks broken in a rally climb the E minor
 pentatonic scale in time with the music, and every effect is panned to
 where it happened. Every campaign level has its own track: 32 in all,
 built on three recurring themes across four acts, with loaded levelsets
@@ -130,11 +130,18 @@ playing them in a shuffled order. See
 [`docs/design/audio.md`](docs/design/audio.md) and the score's guide,
 [`docs/design/music.md`](docs/design/music.md).
 
+The score BRYX first shipped plays too: an 8-bit soundtrack on the same
+notes, written as ABC text in `audio/cues/` and rendered at build time by
+Sonomorph's chip8 engine (the Electric Pulse fork BRYX grew). T switches
+between the two at any time, music, stingers and effects together; each
+set is balanced on its own.
+
 Building with sound (the default) needs a C compiler and, on Linux, the ALSA
 headers (`sudo apt install libasound2-dev`). `cargo run --release
 --no-default-features` builds a silent game with neither.
 `BRYX_SOUND=effects` or `BRYX_SOUND=off` sets the starting sound mode; M
-changes it in game.
+changes it in game. `BRYX_SOUNDTRACK=8bit` starts with the 8-bit
+soundtrack; T switches it in game.
 
 ## Controls
 
@@ -148,6 +155,7 @@ changes it in game.
 | After a Victory     | Space, Escape or P: play again |
 | Q                   | Back to the menu, from the pause and end screens |
 | M                   | Sound: on, effects only, off |
+| T                   | Soundtrack: orchestral or 8-bit |
 | V                   | On the menu: switch between the 2D and 3D view |
 | F11                 | Fullscreen on / off      |
 

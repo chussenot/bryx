@@ -191,15 +191,23 @@ pub struct Frame<'a> {
     pub capsules: &'a [(f32, f32, PowerUpKind)],
     /// The stored best score for this progression (`record.rs`).
     pub record: Record,
-    /// The sound setting, shown by the M key on the menu and pause
+    /// The sound settings, shown by their keys on the menu and pause
     /// screens; `None` when there is no sound to set.
-    pub sound: Option<&'static str>,
+    pub sound: Option<SoundKeys>,
     /// Which renderer is drawing ("View: 2D" or "View: 3D"), shown by the
     /// V key that switches it, on the menu.
     pub view: &'static str,
     /// The menu's mode picker (`menu.rs`). `None` draws the one mode the
     /// game already holds, as a single row.
     pub menu: Option<&'a MenuView>,
+}
+
+/// What the sound keys show: M's setting (on, effects only, off) and T's
+/// soundtrack (orchestral or 8-bit), drawn on one line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SoundKeys {
+    pub mode: &'static str,
+    pub soundtrack: &'static str,
 }
 
 /// The menu's mode picker as the HUD draws it: plain data, built by
@@ -211,7 +219,11 @@ pub struct MenuView {
     pub selected: usize,
 }
 
-/// One playable mode in the picker.
+/// The jukebox row's name (`menu::Mode::Music`): the one row Space does
+/// not play.
+pub const MUSIC_ROW: &str = "MUSIC";
+
+/// One row in the picker: a playable mode, or the jukebox.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MenuRow {
     /// The mode, in capitals: CAMPAIGN, CLASSIC, LEVELSET, SHUFFLE.
@@ -655,19 +667,29 @@ fn keycap(out: &mut Layout, label: &str, x: f32, y: f32) -> f32 {
 /// The controls, as a two-column table: drawn keys right-aligned on the
 /// field's center line, the action left of it. Keys in a group are
 /// alternatives; groups are separated by a wider gap.
-fn controls(out: &mut Layout, top: f32, pause_label: &str, sound: Option<&str>, menu_key: bool) {
-    let mut rows: Vec<(&[&[&str]], String)> = vec![
+fn controls(
+    out: &mut Layout,
+    top: f32,
+    pause_label: &str,
+    sound: Option<SoundKeys>,
+    menu_key: bool,
+) {
+    let rows: Vec<(&[&[&str]], String)> = vec![
         (&[&["←", "→"], &["A", "D"]], "Move".into()),
         (&[&["SPACE"]], "Launch, release, fire".into()),
         (&[&["ESC"], &["P"]], pause_label.into()),
     ];
+    key_rows(out, top, &rows);
+    let mut y = top + rows.len() as f32 * KEY_ROW_PITCH;
+    // Both sound keys on one line, as a sentence: the two settings belong
+    // together, and a row each would push the menu off the canvas.
     if let Some(sound) = sound {
-        rows.push((&[&["M"]], sound.into()));
+        key_line(out, y, &[(&["M"], sound.mode), (&["T"], sound.soundtrack)]);
+        y += KEY_ROW_PITCH;
     }
     if menu_key {
-        rows.push((MENU_KEY_ROW.0, MENU_KEY_ROW.1.into()));
+        key_rows(out, y, &[(MENU_KEY_ROW.0, MENU_KEY_ROW.1.into())]);
     }
-    key_rows(out, top, &rows);
 }
 
 /// Q leaves a run for the menu, from the pause and end screens.
@@ -1107,8 +1129,10 @@ fn state_screen(out: &mut Layout, frame: &Frame, state: GameState) {
 /// The picker's geometry: rows of [`MENU_ROW_HEIGHT`] in a column
 /// [`MENU_ROW_WIDTH`] wide, centered on the canvas.
 const MENU_ROW_WIDTH: f32 = 560.0;
-const MENU_ROW_HEIGHT: f32 = 40.0;
-const MENU_ROW_GAP: f32 = 6.0;
+/// Sized so the fullest picker (six modes) and the controls under it, the
+/// sound line included, fit the canvas.
+const MENU_ROW_HEIGHT: f32 = 36.0;
+const MENU_ROW_GAP: f32 = 4.0;
 /// Where a row's detail column starts, from the row's left edge: past the
 /// longest mode name.
 const MENU_DETAIL_X: f32 = 168.0;
@@ -1123,7 +1147,7 @@ const MENU_VALUE_CHARS: usize = 14;
 /// changes the value of the one row that has one, Space plays. The
 /// highlighted row is filled, outlined and barred on its left edge, so
 /// the selection never rides on color alone.
-fn menu_screen(out: &mut Layout, view: &MenuView, sound: Option<&str>, renderer: &str) {
+fn menu_screen(out: &mut Layout, view: &MenuView, sound: Option<SoundKeys>, renderer: &str) {
     let rows_top = BAND_HEIGHT + 138.0;
     let rows_bottom =
         rows_top + view.rows.len() as f32 * (MENU_ROW_HEIGHT + MENU_ROW_GAP) - MENU_ROW_GAP;
@@ -1141,14 +1165,23 @@ fn menu_screen(out: &mut Layout, view: &MenuView, sound: Option<&str>, renderer:
         menu_row(out, row, y, i == view.selected);
     }
 
+    let music = view
+        .rows
+        .get(view.selected)
+        .is_some_and(|r| r.name == MUSIC_ROW);
     let mut nav: Vec<(&[&str], &str)> = vec![(&["↑", "↓"], "Mode")];
-    if view.rows.iter().any(|r| r.value.is_some() && r.enabled) {
+    if music {
+        nav.push((&["←", "→"], "Track"));
+    } else if view.rows.iter().any(|r| r.value.is_some() && r.enabled) {
         nav.push((&["←", "→"], "Set"));
     }
-    // On the navigation line, not under the controls: with five modes and
-    // the sound key, one more row there would run off the canvas.
+    // On the navigation line, not under the controls: with six modes and
+    // the sound line, one more row there would run off the canvas.
     nav.push((&["V"], renderer));
-    nav.push((&["SPACE"], "Play"));
+    // The Music row plays no run, so Space has nothing to start there.
+    if !music {
+        nav.push((&["SPACE"], "Play"));
+    }
     key_line(out, nav_y, &nav);
 
     // The picker above, the game's controls below: one hairline between
@@ -1591,6 +1624,12 @@ mod tests {
                     Aside::Best(999_999),
                 ),
                 row(
+                    "STRUCTURES",
+                    None,
+                    "32 levels: find the weak point, bring it down",
+                    Aside::Best(54_320),
+                ),
+                row(
                     "CLASSIC",
                     None,
                     "3 levels, the original rules",
@@ -1610,6 +1649,15 @@ mod tests {
                     None,
                     "10 levels drawn from all 136 sets",
                     Aside::Nothing,
+                ),
+                row(
+                    "MUSIC",
+                    Some("Menu theme"),
+                    "plays while picked",
+                    Aside::Position {
+                        index: 1,
+                        count: 33,
+                    },
                 ),
             ],
             selected,
@@ -1974,17 +2022,27 @@ mod tests {
     }
 
     #[test]
-    fn the_sound_key_shows_only_when_there_is_sound_to_set() {
-        let game = Game::new();
-        let with = all_text(&layout(
-            &Frame {
-                sound: Some("Sound: on"),
-                ..frame(&game)
-            },
-            None,
-        ));
-        assert!(with.lines().any(|l| l == "M") && with.contains("Sound: on"));
-        assert!(!all_text(&layout(&frame(&game), None)).contains("Sound"));
+    fn the_sound_keys_show_only_when_there_is_sound_to_set() {
+        let mut game = Game::new();
+        for state in [GameState::Menu, GameState::Paused] {
+            game.state = state;
+            let with = all_text(&layout(
+                &Frame {
+                    sound: Some(SoundKeys {
+                        mode: "Sound: on",
+                        soundtrack: "Soundtrack: 8-bit",
+                    }),
+                    ..frame(&game)
+                },
+                None,
+            ));
+            assert!(with.lines().any(|l| l == "M") && with.contains("Sound: on"));
+            assert!(
+                with.lines().any(|l| l == "T") && with.contains("Soundtrack: 8-bit"),
+                "{state:?}: {with}"
+            );
+            assert!(!all_text(&layout(&frame(&game), None)).contains("Sound"));
+        }
     }
 
     #[test]
@@ -2056,8 +2114,11 @@ mod tests {
                         new_best: true,
                         new_best_rally: true,
                     },
-                    sound: Some("Sound: effects only"),
-                    menu: Some(&picker(2)),
+                    sound: Some(SoundKeys {
+                        mode: "Sound: effects only",
+                        soundtrack: "Soundtrack: orchestral",
+                    }),
+                    menu: Some(&picker(3)),
                     ..frame(&game)
                 },
                 Some(LifeCue {
@@ -2093,7 +2154,7 @@ mod tests {
     #[test]
     fn the_menu_lists_every_mode_and_marks_the_one_highlighted() {
         let game = Game::new();
-        let view = picker(2);
+        let view = picker(3);
         let layout = layout(
             &Frame {
                 menu: Some(&view),
@@ -2102,7 +2163,14 @@ mod tests {
             None,
         );
         let text = all_text(&layout);
-        for name in ["CAMPAIGN", "CLASSIC", "LEVELSET", "SHUFFLE"] {
+        for name in [
+            "CAMPAIGN",
+            "STRUCTURES",
+            "CLASSIC",
+            "LEVELSET",
+            "SHUFFLE",
+            "MUSIC",
+        ] {
             assert!(text.lines().any(|l| l == name), "{name}: {text}");
         }
         assert!(text.contains("BEST 999999") && text.contains("BEST 012340"));

@@ -31,6 +31,64 @@ use crate::rally::{self, Rally};
 use super::cues::{Cue, LEVEL_TRACKS};
 use super::Command;
 
+/// Which of BRYX's two soundtracks plays, toggled with T: the whole sound
+/// (music, stingers, effects) as one set, each balanced on its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Soundtrack {
+    /// The studio's: a sampled orchestra against analog-style synths
+    /// (`audio/score/`).
+    Orchestral,
+    /// The chip8 engine's: the score as BRYX first shipped it
+    /// (`audio/cues/`).
+    EightBit,
+}
+
+impl Soundtrack {
+    pub fn next(self) -> Self {
+        match self {
+            Soundtrack::Orchestral => Soundtrack::EightBit,
+            Soundtrack::EightBit => Soundtrack::Orchestral,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Soundtrack::Orchestral => "Soundtrack: orchestral",
+            Soundtrack::EightBit => "Soundtrack: 8-bit",
+        }
+    }
+
+    /// `BRYX_SOUNDTRACK=8bit` (anything else, or unset, is orchestral).
+    pub fn from_env() -> Self {
+        Self::from_setting(std::env::var("BRYX_SOUNDTRACK").ok().as_deref())
+    }
+
+    fn from_setting(value: Option<&str>) -> Self {
+        match value {
+            Some("8bit" | "8-bit" | "chip") => Soundtrack::EightBit,
+            _ => Soundtrack::Orchestral,
+        }
+    }
+
+    /// A brick note's level in this soundtrack, from its level in the
+    /// 8-bit one, where every brick note was first balanced. The studio
+    /// brick (a driven pop on a pizzicato) is spikier than the chip's square
+    /// wave: at the same peak it measures 5.6 dB quieter over its first
+    /// 30 ms (audio/compose_studio.py, EFFECT_TRIMS), so it plays louder,
+    /// where the mixer's soft limiter takes its attack as it takes the
+    /// chip's sustain: the rally's 0.6 becomes 1.1.
+    fn brick(self, chip: f32) -> f32 {
+        match self {
+            Soundtrack::Orchestral => chip * STUDIO_BRICK_BOOST,
+            Soundtrack::EightBit => chip,
+        }
+    }
+}
+
+/// How much louder the studio brick plays than the chip brick did at the
+/// same level (`Soundtrack::brick`).
+const STUDIO_BRICK_BOOST: f32 = 1.1 / 0.6;
+
 /// The player's sound setting, cycled with M.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoundMode {
@@ -73,8 +131,8 @@ impl SoundMode {
     }
 }
 
-/// The mode a level track is written in (`audio/compose.py` names it in
-/// each track; `build.rs` reads it into [`LEVEL_MODES`]). Every one is
+/// The mode a level track is written in (its score names it; `build.rs`
+/// reads it into [`LEVEL_MODES`]). Every one is
 /// over E.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -225,6 +283,12 @@ pub struct Director {
     /// The level whose first serve has been heard: its music plays from
     /// there. Cleared when a run ends, so a Continue waits for its serve.
     served_level: Option<usize>,
+    /// The menu's jukebox (`menu::Menu::track`): the track that plays on
+    /// the menu in place of its theme. 0 is the theme, `n` level `n`'s.
+    pub jukebox: Option<u8>,
+    /// The soundtrack playing: it sets the brick's level. Which renders
+    /// the cues come from is the mixer's side (`cues::Rendition`).
+    pub soundtrack: Soundtrack,
 }
 
 impl Director {
@@ -242,7 +306,15 @@ impl Director {
             wave: 0,
             ball_attached: false,
             served_level: None,
+            jukebox: None,
+            soundtrack: Soundtrack::Orchestral,
         }
+    }
+
+    /// The music the director last asked for, if any: what a new
+    /// soundtrack must pick up.
+    pub fn music(&self) -> Option<Cue> {
+        self.last_music.flatten()
     }
 
     /// Commands for one simulation tick: its events, and any change of
@@ -268,6 +340,12 @@ impl Director {
         if in_play && self.served_level != Some(game.level) {
             // Before the level's first serve, the field waits in silence.
             music = None;
+        }
+        if let (GameState::Menu, Some(track)) = (game.state, self.jukebox) {
+            music = Some(match track.min(LEVEL_TRACKS) {
+                0 => Cue::MusicMenu,
+                n => Cue::Level(n),
+            });
         }
         if self.last_music != Some(music) {
             out.push(Command::Music(music));
@@ -359,7 +437,8 @@ impl Director {
                 GameEvent::BrickDestroyedAt { x, .. } => {
                     let step = steps.iter().find(|&&(j, _)| j == i).map_or(0, |&(_, s)| s);
                     let degree = scale[step];
-                    let note = pitched(Cue::Brick, 0.6, x, semitones(degree));
+                    let note =
+                        pitched(Cue::Brick, self.soundtrack.brick(0.6), x, semitones(degree));
                     match delays[i].unwrap_or(0.0) {
                         // A struck brick: at once, a few per tick at most.
                         d if d <= 0.0 => {
@@ -464,6 +543,7 @@ impl Director {
                     let (step, octave) = WAVE_STEPS[wave];
                     let degree = scale[step] + 12.0 * octave;
                     let gain = 0.45 + 0.02 * f32::from(count.min(10));
+                    let gain = self.soundtrack.brick(gain);
                     out.push(pitched(Cue::Brick, gain, x, semitones(degree)));
                 }
                 // The collapse itself: where the rally climbs the scale, a
@@ -476,7 +556,8 @@ impl Director {
                     let top = rally::STEPS - 1;
                     let octave = (step / rally::STEPS).min(2) as f32;
                     let degree = scale[top - step % rally::STEPS] - 12.0 * octave;
-                    out.push(pitched(Cue::Brick, 0.5, rect[0], semitones(degree)));
+                    let gain = self.soundtrack.brick(0.5);
+                    out.push(pitched(Cue::Brick, gain, rect[0], semitones(degree)));
                 }
                 // A falling brick lands: the dull knock, lower.
                 GameEvent::DebrisLanded { x, .. } if !thud => {
@@ -495,14 +576,16 @@ impl Director {
                 GameEvent::DebrisCaught { x, nth, .. } if !caught => {
                     caught = true;
                     let step = (nth.max(1) as usize - 1).min(rally::STEPS - 1);
-                    out.push(pitched(Cue::Brick, 0.55, x, semitones(scale[step])));
+                    let gain = self.soundtrack.brick(0.55);
+                    out.push(pitched(Cue::Brick, gain, x, semitones(scale[step])));
                 }
                 // The keystone comes down: the root and its octave, the
                 // resolution. The level's fanfare follows when the rest has
                 // fallen.
                 GameEvent::KeystoneFell { x, .. } => {
-                    out.push(pitched(Cue::Brick, 0.8, x, semitones(scale[0])));
-                    out.push(pitched(Cue::Brick, 0.6, x, semitones(scale[0] + 12.0)));
+                    let (root, octave) = (self.soundtrack.brick(0.8), self.soundtrack.brick(0.6));
+                    out.push(pitched(Cue::Brick, root, x, semitones(scale[0])));
+                    out.push(pitched(Cue::Brick, octave, x, semitones(scale[0] + 12.0)));
                 }
                 // A collapse ends on the root, low: the cadence its waves
                 // and its leading tone were waiting for. A large one adds
@@ -513,7 +596,8 @@ impl Director {
                     self.wave = 0;
                     if !has(&GameEvent::LevelCleared) {
                         let x = PLAYFIELD_WIDTH / 2.0;
-                        out.push(pitched(Cue::Brick, 0.6, x, semitones(scale[0] - 12.0)));
+                        let gain = self.soundtrack.brick(0.6);
+                        out.push(pitched(Cue::Brick, gain, x, semitones(scale[0] - 12.0)));
                         if bricks >= MAJOR_COLLAPSE {
                             out.push(pitched(Cue::Explosion, 0.5, x, semitones(-5.0)));
                         }
@@ -677,6 +761,58 @@ mod tests {
         let mut director = Director::new(1);
         director.observe(&game, &[]);
         (director, game)
+    }
+
+    /// The brick notes' levels in `commands`.
+    fn brick_gains(commands: &[Command]) -> Vec<f32> {
+        commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Play {
+                    sound: Cue::Brick,
+                    gain,
+                    ..
+                } => Some(*gain),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_soundtrack_toggles_and_reads_its_setting() {
+        assert_eq!(Soundtrack::Orchestral.next(), Soundtrack::EightBit);
+        assert_eq!(Soundtrack::EightBit.next(), Soundtrack::Orchestral);
+        assert_eq!(Soundtrack::from_setting(None), Soundtrack::Orchestral);
+        assert_eq!(Soundtrack::from_setting(Some("8bit")), Soundtrack::EightBit);
+        assert_eq!(
+            Soundtrack::from_setting(Some("orchestral")),
+            Soundtrack::Orchestral
+        );
+        assert_ne!(Soundtrack::Orchestral.label(), Soundtrack::EightBit.label());
+    }
+
+    /// Each soundtrack's brick plays at the level it was balanced at: the
+    /// 8-bit one at master's, the orchestral one louder by the studio
+    /// brick's measured boost (the rally's 0.6 becomes 1.1), and every
+    /// other brick note (here the keystone's) by the same ratio.
+    #[test]
+    fn brick_notes_play_at_their_soundtracks_level() {
+        for (soundtrack, rally, keystone) in [
+            (Soundtrack::EightBit, 0.6, [0.8, 0.6]),
+            (Soundtrack::Orchestral, 1.1, [0.8 * 1.1 / 0.6, 1.1]),
+        ] {
+            let (mut director, game) = playing();
+            director.soundtrack = soundtrack;
+            let heard = brick_gains(&director.observe(&game, &[brick_at(400.0)]));
+            assert_eq!(heard.len(), 1, "{soundtrack:?}");
+            assert!((heard[0] - rally).abs() < 1e-5, "{soundtrack:?}: {heard:?}");
+            let fell =
+                brick_gains(&director.observe(&game, &[E::KeystoneFell { x: 400.0, y: 100.0 }]));
+            assert_eq!(fell.len(), 2, "{soundtrack:?}");
+            for (got, want) in fell.iter().zip(keystone) {
+                assert!((got - want).abs() < 1e-5, "{soundtrack:?}: {fell:?}");
+            }
+        }
     }
 
     #[test]
@@ -1049,6 +1185,25 @@ mod tests {
             .collect();
         assert_eq!(gains.len(), 2, "one ball blast, one asteroid: {out:?}");
         assert!(gains[0] < gains[1], "the ball's is the quieter");
+    }
+
+    #[test]
+    fn the_jukebox_picks_the_menus_music_and_only_the_menus() {
+        let (mut director, mut game) = playing();
+        game.state = GameState::Menu;
+        director.jukebox = Some(7);
+        assert_eq!(
+            music(&director.observe(&game, &[])),
+            Some(Some(Cue::Level(7)))
+        );
+        director.jukebox = Some(0);
+        assert_eq!(
+            music(&director.observe(&game, &[])),
+            Some(Some(Cue::MusicMenu))
+        );
+        director.jukebox = Some(7);
+        game.state = GameState::GameOver;
+        assert_eq!(music(&director.observe(&game, &[])), Some(None));
     }
 
     #[test]

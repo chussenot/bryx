@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""BRYX's score: 32 level tracks and a menu theme, written out as ABC.
+"""BRYX's score, as notes: 32 level tracks and a menu theme, for both of
+its soundtracks.
 
-    python3 audio/compose.py --check                       # the score lint only
+    python3 audio/compose.py                               # the score lint
+    python3 audio/compose.py --check                       # the same
     python3 audio/compose.py --render sonomorph-render     # lint, then rewrite audio/cues/music_*.abc
 
 The music lives here as *musical decisions*: three themes, the ways they
 are transformed and developed into phrases, a harmony per mode, a form per
 act, and one recipe per level that picks a mode, a tempo, a texture and
-which themes speak. This script turns those into ABC text for the vendored
-Electric Pulse engine. The ABC files it writes are committed and are what
-build.rs renders, so the game never runs Python. docs/design/music.md is
-the listener's guide to the same material.
+which themes speak. Both soundtracks play these notes:
+- the 8-bit one: this script writes them as ABC text for Sonomorph's chip8
+  engine (`--render`), into audio/cues/;
+- the orchestral one: audio/compose_studio.py imports them and orchestrates
+  them for Sonomorph's studio, into audio/score/.
+Both outputs are committed and are what build.rs renders, so the game never
+runs Python. docs/design/music.md is the listener's guide to the same
+material.
 
 Everything is centered on E, because BRYX's brick sounds play the E minor
 pentatonic over the music: the mode changes the color (Dorian brighter,
@@ -1320,18 +1326,19 @@ def master(text: str, render: str, tmp: pathlib.Path) -> str:
 
 
 def main():
-    """`--check` runs the lint. `--render PATH` names Sonomorph's renderer,
-    `sonomorph-render` (see docs/design/music.md, "Changing the music"): the lint
-    runs, then every track is mastered with it and written. The renderer
-    is required: an unmastered score would clip."""
+    """With no argument, or `--check`, runs the lint over the 32 tracks and
+    the menu and exits 1 if any fails it (audio/compose_studio.py runs the
+    same lint before it writes the orchestral score). `--render PATH` names
+    Sonomorph's renderer, `sonomorph-render` (see docs/design/music.md,
+    "Changing the music"): the lint runs, then every 8-bit track is
+    mastered with it and written. The renderer is required: an unmastered
+    track would clip."""
     import sys
     import tempfile
 
     tracks = [compose(r) for r in RECIPES] + [compose(MENU)]
     ok = check_score(tracks)
     if "--render" not in sys.argv:
-        if "--check" not in sys.argv:
-            raise SystemExit("usage: compose.py --check | --render <path to sonomorph-render>")
         raise SystemExit(0 if ok else 1)
     if not ok:
         raise SystemExit("the score lint failed: nothing written")

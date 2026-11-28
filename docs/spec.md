@@ -153,6 +153,11 @@ Space plays the highlighted one:
 - Shuffle: ten levels drawn at random from every fetched set, a new draw
   each time the row is picked.
 
+A last row, Music, is the jukebox and plays no run: ←/→ (A/D) picks one of
+the 33 tracks (the menu theme, then each campaign level's), which plays in
+place of the menu theme while the row is highlighted. Space does nothing
+there.
+
 ↑/↓ (W/S) move the highlight, wrapping. With no set fetched, the Levelset
 row is shown disabled with how to fetch one, skipped by ↑/↓, and Shuffle
 is not offered. Each built-in mode's row shows its best score. Q on the
@@ -209,16 +214,24 @@ never set them.
   meter read from the cue.
 
 **Sound (added after v1)**, designed in `docs/design/audio.md`:
-- Cues are ABC text files in `audio/cues/`. `build.rs` renders them at build
-  time with Sonomorph's chip8 engine (BRYX's fork of the Electric Pulse
-  engine, extracted to `chussenot/sonomorph`; its PROVENANCE.md lists the
-  changes), and the binary embeds the PCM as 8-bit mu-law: the game runs no
-  C.
+- Two soundtracks on the same notes, each a complete set of music,
+  stingers and effects:
+  - orchestral (the default): `.score` text files in `audio/score/`,
+    rendered at build time by Sonomorph's studio (BRYX's, extracted to
+    `chussenot/sonomorph`; see its `engine/advanced/PROVENANCE.md`) from a
+    CC0 orchestral sample set (its `library/`); music and stingers embedded
+    as 48 kHz stereo QOA, effects as 8-bit mu-law;
+  - 8-bit: ABC text files in `audio/cues/`, rendered at build time by
+    Sonomorph's chip8 engine (BRYX's fork of Electric Pulse; its
+    `engine/chip8/PROVENANCE.md`), embedded as 8-bit mu-law.
+
+  The game runs no C.
 - Playback goes through Sonomorph's mixer and its `cpal` stream (the
   default `audio` feature; justified in `Cargo.toml`), driven by BRYX's
   director (`src/audio/`): panned effects,
   pitched by playback rate; stingers that duck the music; one music track
-  per campaign level (`audio/compose.py`, `docs/design/music.md`),
+  per campaign level (`audio/compose.py`, `audio/compose_studio.py`,
+  `docs/design/music.md`),
   crossfaded, and a shuffled order for loaded levelsets.
 - Sound is presentation only. `src/audio/director.rs` reads each tick's
   events and the game's state, like the renderers, and never writes to
@@ -227,7 +240,11 @@ never set them.
   sets the start); the menu shows which is drawing. An interface key,
   never simulation input, and not kept between sessions.
 - M cycles the sound: on, effects only, off (`BRYX_SOUND` sets the
-  start). No device means a silent game, never a crash.
+  start). T switches the soundtrack, orchestral or 8-bit
+  (`BRYX_SOUNDTRACK=8bit` sets the start); the music crossfades to the
+  other's rendering of the same track. Both are interface keys, never
+  simulation input, and not kept between sessions. No device means a
+  silent game, never a crash.
   `--no-default-features` builds a silent game with no C compiler and no
   ALSA.
 

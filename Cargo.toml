@@ -46,19 +46,20 @@ lyon_tessellation = "1.0.23"
 [features]
 default = ["audio"]
 typesafe = ["dep:judgment", "dep:tokio", "dep:serde_json"]
-# Sound (src/audio/): cues rendered at build time by Sonomorph's chip8 engine
+# Sound (src/audio/): scores rendered at build time by Sonomorph's studio
 # (build.rs) and played through its mixer and cpal stream. Without it the
 # game is silent and needs neither a C compiler nor ALSA headers.
 audio = ["sonomorph/output", "dep:sonomorph"]
 
 [dependencies.sonomorph]
 # BRYX's sound engine, extracted to its own crate so other games can use
-# it (chussenot/sonomorph): the mixer the director speaks to, always built
-# (pure Rust, no features), and with `audio` its device stream through cpal
-# (`output`; on Linux it needs libasound2-dev). Replaces the cpal dependency
-# and src/audio/{mixer,output,mulaw}.rs.
+# it (chussenot/sonomorph, its `advanced` branch: the studio): the mixer
+# the director speaks to, always built (pure Rust: QOA decoding, mu-law,
+# no features), and with `audio` its device stream through cpal
+# (`output`; on Linux it needs libasound2-dev). Replaces the cpal
+# dependency and src/audio/{mixer,qoa,mulaw,output}.rs.
 git = "https://github.com/chussenot/sonomorph"
-rev = "3ffcb606a89cec4793701109452d42b59c90e887"
+rev = "3c2eaf0ea03a673a339ebf35af7b074d683e3981"
 default-features = false
 
 [build-dependencies.wesl]
@@ -71,12 +72,17 @@ default-features = false
 version = "0.6.0"
 
 [build-dependencies.sonomorph]
-# The same crate's `render` feature, for build.rs: the chip8 engine (the
-# Electric Pulse fork that lived in audio/engine/) renders audio/cues/*.abc.
+# The same crate, for build.rs, rendering both soundtracks:
+# - `render-advanced`: the studio (which lived in audio/engine/) and its
+#   instrument library (the desk, the orchestra and its VSCO samples, the
+#   synth palette, which lived in audio/instruments/ and audio/samples/)
+#   render audio/score/**/*.score, the orchestral soundtrack;
+# - `render`: the chip8 engine (the Electric Pulse fork) renders
+#   audio/cues/*.abc, the 8-bit soundtrack.
 # Replaces the cc build-dependency and the C sources; it needs a C compiler.
 git = "https://github.com/chussenot/sonomorph"
-rev = "3ffcb606a89cec4793701109452d42b59c90e887"
-features = ["render"]
+rev = "3c2eaf0ea03a673a339ebf35af7b074d683e3981"
+features = ["render-advanced", "render"]
 optional = true
 
 [dependencies.judgment]

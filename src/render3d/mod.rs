@@ -1094,7 +1094,7 @@ pub struct Renderer3D {
     /// The best score the HUD shows, set by `main` (`set_record`).
     record: hud::Record,
     /// The sound setting the HUD shows by the M key (`set_sound`).
-    sound: Option<&'static str>,
+    sound: Option<crate::hud::SoundKeys>,
     /// The menu's mode picker, as `main.rs` last set it.
     menu: hud::MenuView,
 }
@@ -1473,7 +1473,7 @@ impl Renderer3D {
         }
     }
 
-    pub fn set_sound(&mut self, label: Option<&'static str>) {
+    pub fn set_sound(&mut self, label: Option<crate::hud::SoundKeys>) {
         self.sound = label;
     }
 

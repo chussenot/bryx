@@ -3144,7 +3144,7 @@ dependencies = [
 [[package]]
 name = "sonomorph"
 version = "0.1.0"
-source = "git+https://github.com/chussenot/sonomorph?rev=3ffcb606a89cec4793701109452d42b59c90e887#3ffcb606a89cec4793701109452d42b59c90e887"
+source = "git+https://github.com/chussenot/sonomorph?rev=3c2eaf0ea03a673a339ebf35af7b074d683e3981#3c2eaf0ea03a673a339ebf35af7b074d683e3981"
 dependencies = [
  "cc",
  "cpal",
