@@ -48,11 +48,12 @@ identity.
   ball or fire a laser, Escape or P to pause. On the menu, ↑/↓ choose the
   mode and ←/→ the levelset; Q returns there from the pause and end
   screens.
-- The menu picks what to play: the campaign, Classic (v1 rules and levels),
+- The menu picks what to play: the campaign, Structures (32 levels to
+  bring down rather than clear: `docs/concept.md`), Classic (v1 rules and levels),
   one of the community LBreakoutHD levelsets fetched into `levels/`, or a
   Shuffle of ten levels from all of them.
-- Flags change the session: `--renderer 3d`, `--classic` and
-  `--levelset <path>` (preselect the menu's choice), `--assets <dir>` (an
+- Flags change the session: `--renderer 3d`, `--classic`, `--structures`
+  and `--levelset <path>` (preselect the menu's choice), `--assets <dir>` (an
   optional CC0 sprite pack), `--autopilot`.
 - Fully offline. The only network use is the optional autopilot model, and
   only when built with `--features typesafe` and given an API key.
@@ -64,8 +65,8 @@ identity.
 - Content: a 32-level named campaign (default), v1's three levels
   (`--classic`), or loaded levelsets. Bricks are normal, armored (two hits)
   or indestructible.
-- Eleven capsules: Widen, Slow, Multiball, Glue, Laser, Super laser, Tiny,
-  Player, Break, Explosive ball, Metal ball. Plus drifting asteroids that explode, laser bolts, and the
+- Twelve capsules: Widen, Slow, Multiball, Glue, Laser, Super laser, Tiny,
+  Player, Break, Explosive ball, Metal ball, and the rare Meteor rain. Plus drifting asteroids that explode, laser bolts, and the
   Break gate in the right wall.
 - Presentation is fixed by the spec's technology choices: one instanced-quad
   pipeline in 2D, a cube/sphere pipeline in 3D, `glyphon` text. A procedural

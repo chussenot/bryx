@@ -19,6 +19,7 @@ mod rally;
 mod record;
 mod render;
 mod render3d;
+mod structure;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -142,8 +143,8 @@ const MAX_TICKS_PER_FRAME: u32 = 10;
 struct App {
     window: Option<Arc<Window>>,
     renderer: Option<AnyRenderer>,
-    /// Which renderer `resumed()` constructs, set once from `--renderer`
-    /// before the event loop starts running (see `main()`).
+    /// Which renderer draws: `--renderer` at the start (see `main()`),
+    /// then whatever V on the menu switched to (`switch_renderer`).
     renderer_kind: cli::RendererKind,
     /// Sprite pixels this session draws with (see `assets::TextureSource`),
     /// resolved once in `main` -- held here only until `resumed` builds the
@@ -306,12 +307,39 @@ impl App {
         self.menu_view = self.menu.view(|key| self.best(key));
     }
 
-    /// Interface keys: moving through the picker on the menu, and Q back
+    /// Swaps the 2D renderer for the 3D one or back, on the same window.
+    /// The old one goes first: a window holds one surface at a time. What
+    /// the new one shows (record, sound, menu) is set again every frame.
+    fn switch_renderer(&mut self) {
+        let Some(window) = &self.window else {
+            return;
+        };
+        self.renderer_kind = match self.renderer_kind {
+            cli::RendererKind::Classic => cli::RendererKind::ThreeD,
+            cli::RendererKind::ThreeD => cli::RendererKind::Classic,
+        };
+        self.renderer = None;
+        self.renderer = Some(AnyRenderer::new(
+            self.renderer_kind,
+            Arc::clone(window),
+            self.atlas.clone(),
+            self.autopilot.is_some(),
+            self.fx.quality(),
+        ));
+    }
+
+    /// Interface keys: moving through the picker on the menu, V switching
+    /// between the 2D and 3D renderers there, and Q back
     /// to it from the pause and end screens. Never simulation input. Held
     /// arrows repeat (the OS's key repeat), so a long list of sets scrolls.
     fn interface_key(&mut self, code: KeyCode, repeat: bool) {
         use game::GameState::{GameOver, Menu, Paused, Victory};
         match self.game.state {
+            Menu if code == KeyCode::KeyV => {
+                if !repeat {
+                    self.switch_renderer();
+                }
+            }
             Menu => {
                 let nav = match code {
                     KeyCode::ArrowUp | KeyCode::KeyW => menu::Nav::Up,
@@ -757,6 +785,7 @@ fn main() {
     match wanted {
         Some(name) => picker.select_set(&name),
         None if args.classic => picker.select(menu::Mode::Classic),
+        None if args.structures => picker.select(menu::Mode::Structures),
         None => {}
     }
 

@@ -35,6 +35,8 @@ pub enum PowerUpKind {
     Break,
     ExplosiveBall,
     MetalBall,
+    /// The rare one: a rain of meteorites on the bricks.
+    MeteorRain,
 }
 
 /// Something the simulation did this tick.
@@ -58,14 +60,67 @@ pub enum GameEvent {
     GunFired(crate::game::GunKind),
     /// An asteroid drifted in from the top.
     AsteroidSpawned,
-    /// An asteroid was blown up by a ball or the paddle, at its last
+    /// An asteroid was blown up by a ball or a bolt, at its last
     /// position: it is gone from `Game::asteroids` by the time this fires,
     /// so the renderers' explosion effect reads its spot from here.
     AsteroidExploded { x: f32, y: f32 },
+    /// An asteroid reached the paddle and blew up on it, costing points:
+    /// drawn like `AsteroidExploded`, heard as its own sound.
+    AsteroidHitPaddle { x: f32, y: f32 },
     /// An explosive ball blew up against a brick, centered on that brick:
     /// the renderers draw it like an asteroid's explosion, the director
     /// plays it a little quieter (there can be many in a row).
     BallExploded { x: f32, y: f32 },
+    /// A meteorite of the Meteor rain landed on a brick, at the point of
+    /// its top face it hit. The brick's own event follows in the same
+    /// tick: `BrickDestroyedAt` if it broke, `BrickStruck` (by a blast) if
+    /// it is indestructible.
+    MeteorStruck { x: f32, y: f32 },
+    /// A brick started carrying more than it can (structural levels): it
+    /// cracks from now until it gives way. `rect` is its center and size.
+    BrickOverloaded {
+        rect: [f32; 4],
+        load: u16,
+        capacity: u16,
+    },
+    /// An overloaded brick broke under what it carried. Its
+    /// `BrickDestroyedAt` follows in the same tick.
+    BrickGaveWay { rect: [f32; 4] },
+    /// A brick that carried `dependents` others is gone, however it went.
+    SupportLost { x: f32, y: f32, dependents: u16 },
+    /// `count` bricks lost every hold and are about to fall, centered on
+    /// (`x`, `y`).
+    SectionUnstable { count: u16, x: f32, y: f32 },
+    /// A brick let go and is falling: the `nth` brought down in this
+    /// collapse (1 for the first). It is scored now and no longer a brick;
+    /// no `BrickDestroyedAt` follows.
+    BrickFell {
+        rect: [f32; 4],
+        kind: crate::levels::BrickKind,
+        nth: u32,
+    },
+    /// A falling brick landed on a standing one, at the middle of the top
+    /// face it hit, and shattered there.
+    DebrisLanded { x: f32, y: f32 },
+    /// A falling brick landed on the paddle, at the middle of the brick on
+    /// the paddle's top, and shattered there: the paddle cannot move for a
+    /// moment.
+    PaddleStruck { x: f32, y: f32 },
+    /// The keystone came down: the level is won, and what is left of it
+    /// lets go.
+    KeystoneFell { x: f32, y: f32 },
+    /// A collapse is over (nothing cracking, shaking or falling any more):
+    /// how many bricks it brought down, what they scored, and in how many
+    /// waves (sections that let go one after the other).
+    CollapseEnded { bricks: u32, score: u32, waves: u32 },
+    /// A falling brick landed on the paddle after the keystone fell: it is
+    /// caught, the `nth` of the level's finale, and scores `points` again.
+    DebrisCaught {
+        x: f32,
+        y: f32,
+        nth: u32,
+        points: u32,
+    },
     /// A ball fell below the bottom edge. Fires once per ball, including
     /// during multiball — see `LifeLost` for the life-loss rule.
     BallLost,
@@ -132,4 +187,6 @@ pub enum Striker {
     /// without breaking: the contact is the brick's point nearest the
     /// blast. (Bricks a blast breaks are `BrickDestroyedAt` only.)
     Blast,
+    /// A falling brick landing on it (structural levels).
+    Debris,
 }

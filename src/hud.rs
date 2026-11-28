@@ -35,7 +35,7 @@ use glyphon::{
 };
 
 use crate::events::PowerUpKind;
-use crate::game::{Game, GameState, LevelSetKind, PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH};
+use crate::game::{Game, GameState, LevelSetKind, PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH, TICK_RATE};
 use crate::movement;
 use crate::palette::{self, Rgb};
 
@@ -194,6 +194,9 @@ pub struct Frame<'a> {
     /// The sound setting, shown by the M key on the menu and pause
     /// screens; `None` when there is no sound to set.
     pub sound: Option<&'static str>,
+    /// Which renderer is drawing ("View: 2D" or "View: 3D"), shown by the
+    /// V key that switches it, on the menu.
+    pub view: &'static str,
     /// The menu's mode picker (`menu.rs`). `None` draws the one mode the
     /// game already holds, as a single row.
     pub menu: Option<&'a MenuView>,
@@ -249,6 +252,7 @@ impl MenuView {
             LevelSetKind::Campaign => "CAMPAIGN",
             LevelSetKind::Classic => "CLASSIC",
             LevelSetKind::Loaded => "LEVELSET",
+            LevelSetKind::Structures => "STRUCTURES",
         };
         Self {
             rows: vec![MenuRow {
@@ -362,6 +366,8 @@ pub fn layout(frame: &Frame, cue: Option<LifeCue>) -> Layout {
     match game.state {
         GameState::Playing => {
             capsule_letters(&mut out, frame.capsules);
+            structure_readout(&mut out, game);
+            salvage_readout(&mut out, game);
             if game.ball.attached && !frame.autopilot {
                 serve_prompt(&mut out, game);
             }
@@ -817,6 +823,13 @@ fn serve_prompt(out: &mut Layout, game: &Game) {
     // level line and key move down under it: above them, the title would
     // meet the deepest brick row where the 3D camera draws it.
     if let Some(act) = movement::opening(game) {
+        // A structural level's lesson adds its lines under the level line.
+        // Under a title as well, they would push the key onto the paddle
+        // where the 3D camera draws it, so the whole stack starts higher
+        // by their height: the key lands where the campaign's does.
+        if game.level_hint().is_some() {
+            y -= LESSON_LINES;
+        }
         out.lines.push(centered(
             vec![
                 span(format!("{} · ", act.numeral), palette::TEXT_DIM, true),
@@ -831,7 +844,120 @@ fn serve_prompt(out: &mut Layout, game: &Game) {
         y += 56.0;
     }
     out.lines.push(centered(spans, size::SUMMARY, 0.0, y));
+    // A structural level says what it asks for: its one-line lesson in
+    // the keystone's gold, over the objective every one of them shares.
+    if let Some(hint) = game.level_hint() {
+        out.lines.push(centered(
+            vec![span(hint, palette::BRICK_KEYSTONE, true)],
+            size::VALUE,
+            0.12,
+            y + 26.0,
+        ));
+        if game.keystone_stands() {
+            out.lines.push(centered(
+                vec![span("BRING DOWN THE KEYSTONE", palette::TEXT_DIM, true)],
+                size::CAPTION,
+                CAPTION_TRACKING,
+                y + 54.0,
+            ));
+        }
+        y += LESSON_LINES;
+    }
     key_rows(out, y + 30.0, &[(&[&["SPACE"]], "Launch".into())]);
+}
+
+/// How far a structural level's lesson and objective push the serve
+/// prompt's key down.
+const LESSON_LINES: f32 = 46.0;
+
+/// How long a collapse's sum stays up after it ends.
+const COLLAPSE_SUM_SECS: f32 = 1.6;
+/// A collapse smaller than this is not announced: one brick falling is
+/// not an event.
+const COLLAPSE_SHOWN_FROM: u32 = 2;
+
+/// A structural level's own readouts, in the field:
+/// - bottom left, the level's tally: bricks broken by a strike, and bricks
+///   brought down (fallen, crushed, given way), the number the level is
+///   about;
+/// - in the middle, under the structure, the collapse under way: how many
+///   bricks it has brought down and what they scored, kept up a moment
+///   after it ends.
+fn structure_readout(out: &mut Layout, game: &Game) {
+    if !game.structure.is_active() {
+        return;
+    }
+    out.lines.push(Line {
+        spans: vec![
+            span("BROKEN ", palette::TEXT_DIM, true),
+            span(game.level_direct.to_string(), palette::TEXT, true),
+            span("   BROUGHT DOWN ", palette::TEXT_DIM, true),
+            span(
+                game.level_collapsed.to_string(),
+                palette::BRICK_KEYSTONE,
+                true,
+            ),
+        ],
+        size: size::CAPTION,
+        tracking: CAPTION_TRACKING,
+        x: MARGIN_X,
+        y: CANVAS_HEIGHT - 18.0,
+        align: Align::Left,
+    });
+
+    let collapse = if game.collapse.bricks > 0 {
+        game.collapse
+    } else {
+        match game.last_collapse {
+            Some((sum, ended))
+                if (game.run_ticks - ended) as f32 <= COLLAPSE_SUM_SECS * TICK_RATE =>
+            {
+                sum
+            }
+            _ => return,
+        }
+    };
+    if collapse.bricks < COLLAPSE_SHOWN_FROM {
+        return;
+    }
+    // Its multiplier: the run the shot that set it off started, one step a
+    // brick (`Collapse::multiplier`), so the player sees a cut pay out.
+    let mut spans = vec![
+        span("COLLAPSE ", palette::TEXT_DIM, true),
+        span(collapse.bricks.to_string(), palette::BRICK_KEYSTONE, true),
+    ];
+    if game.features.rally_score {
+        spans.push(span(
+            format!(" ×{}", collapse.reached()),
+            palette::TEXT,
+            true,
+        ));
+    }
+    spans.push(span(format!("  +{}", collapse.score), palette::TEXT, true));
+    out.lines
+        .push(centered(spans, size::VALUE, 0.08, FIELD_CENTER_Y + 96.0));
+}
+
+/// The finale's catch, under the collapse: how many falling bricks the
+/// paddle has caught since the keystone fell, and what they paid.
+fn salvage_readout(out: &mut Layout, game: &Game) {
+    if !game.finale || game.salvage.bricks == 0 {
+        return;
+    }
+    out.lines.push(centered(
+        vec![
+            span("CAUGHT ", palette::TEXT_DIM, true),
+            span(
+                game.salvage.bricks.to_string(),
+                palette::BRICK_KEYSTONE,
+                true,
+            ),
+            span(format!("  +{}", game.salvage.score), palette::TEXT, true),
+        ],
+        size::VALUE,
+        0.08,
+        FIELD_CENTER_Y + 126.0,
+    ));
 }
 
 fn state_screen(out: &mut Layout, frame: &Frame, state: GameState) {
@@ -854,7 +980,7 @@ fn state_screen(out: &mut Layout, frame: &Frame, state: GameState) {
                     &fallback
                 }
             };
-            menu_screen(out, view, sound);
+            menu_screen(out, view, sound, frame.view);
         }
         GameState::Paused => {
             let rows = 4 + usize::from(sound.is_some());
@@ -1001,7 +1127,7 @@ const MENU_VALUE_CHARS: usize = 14;
 /// changes the value of the one row that has one, Space plays. The
 /// highlighted row is filled, outlined and barred on its left edge, so
 /// the selection never rides on color alone.
-fn menu_screen(out: &mut Layout, view: &MenuView, sound: Option<&str>) {
+fn menu_screen(out: &mut Layout, view: &MenuView, sound: Option<&str>, renderer: &str) {
     let rows_top = BAND_HEIGHT + 138.0;
     let rows_bottom =
         rows_top + view.rows.len() as f32 * (MENU_ROW_HEIGHT + MENU_ROW_GAP) - MENU_ROW_GAP;
@@ -1026,10 +1152,14 @@ fn menu_screen(out: &mut Layout, view: &MenuView, sound: Option<&str>) {
     let mut nav: Vec<(&[&str], &str)> = vec![(&["↑", "↓"], "Mode")];
     if music {
         nav.push((&["←", "→"], "Track"));
-    } else {
-        if view.rows.iter().any(|r| r.value.is_some() && r.enabled) {
-            nav.push((&["←", "→"], "Set"));
-        }
+    } else if view.rows.iter().any(|r| r.value.is_some() && r.enabled) {
+        nav.push((&["←", "→"], "Set"));
+    }
+    // On the navigation line, not under the controls: with six modes and
+    // the sound key, one more row there would run off the canvas.
+    nav.push((&["V"], renderer));
+    // The Music row plays no run, so Space has nothing to start there.
+    if !music {
         nav.push((&["SPACE"], "Play"));
     }
     key_line(out, nav_y, &nav);
@@ -1451,6 +1581,7 @@ mod tests {
             capsules: &[],
             record: Record::default(),
             sound: None,
+            view: "View: 2D",
             menu: None,
         }
     }
@@ -1717,6 +1848,90 @@ mod tests {
         assert!(!all_text(&layout(&frame(&game), None)).contains("Launch"));
     }
 
+    /// Where the serve prompt's key line sits on `level` of `game`.
+    fn launch_y(mut game: Game, level: usize) -> f32 {
+        game.level = level;
+        game.state = GameState::Playing;
+        let layout = layout(&frame(&game), None);
+        let launch = layout.lines.iter().find(|l| l.text() == "Launch");
+        launch.expect("the serve prompt shows its key").y
+    }
+
+    #[test]
+    fn the_key_to_serve_never_sits_lower_than_on_the_campaigns_first_level() {
+        use crate::game::Features;
+        // The campaign's act openings are the tallest prompt the 3D
+        // paddle was checked against; a structural level adds its lesson.
+        let campaign = launch_y(Game::new().with_campaign(), 1);
+        for level in 1..=crate::levels::STRUCTURES.len() {
+            let game = Game::new()
+                .with_structures()
+                .with_features(Features::STRUCTURES);
+            let y = launch_y(game, level);
+            assert!(y <= campaign, "level {level}: key at {y}, below {campaign}");
+        }
+    }
+
+    #[test]
+    fn a_structural_level_names_its_lesson_and_counts_what_came_down() {
+        use crate::game::{Collapse, Features};
+        let mut game = Game::new()
+            .with_structures()
+            .with_features(Features::STRUCTURES);
+        game.state = GameState::Playing;
+        let text = all_text(&layout(&frame(&game), None));
+        for want in [
+            "First fall",
+            "CUT A BEAM",
+            "BRING DOWN THE KEYSTONE",
+            "BROKEN 0",
+            "BROUGHT DOWN 0",
+        ] {
+            assert!(text.contains(want), "{want}: {text}");
+        }
+        assert!(!text.contains("COLLAPSE"), "nothing is falling: {text}");
+
+        // A collapse under way is counted as it goes, then summed up for
+        // a moment after it ends.
+        game.ball.attached = false;
+        game.level_collapsed = 14;
+        game.collapse = Collapse {
+            bricks: 14,
+            score: 3480,
+            waves: 2,
+            base: Some(1),
+            run: 14,
+        };
+        let text = all_text(&layout(&frame(&game), None));
+        assert!(text.contains("COLLAPSE 14 ×10  +3480"), "{text}");
+        assert!(text.contains("BROUGHT DOWN 14"), "{text}");
+        assert!(
+            !text.contains("CUT A BEAM"),
+            "the prompt left with the ball"
+        );
+
+        game.last_collapse = Some((game.collapse, 100));
+        game.collapse = Collapse::default();
+        game.run_ticks = 100 + (COLLAPSE_SUM_SECS * TICK_RATE) as u64;
+        assert!(all_text(&layout(&frame(&game), None)).contains("COLLAPSE 14"));
+        game.run_ticks += 2;
+        assert!(!all_text(&layout(&frame(&game), None)).contains("COLLAPSE"));
+
+        // One brick falling is not announced.
+        game.collapse = Collapse {
+            bricks: 1,
+            score: 20,
+            ..Collapse::default()
+        };
+        assert!(!all_text(&layout(&frame(&game), None)).contains("COLLAPSE"));
+
+        // The campaign shows none of it.
+        let mut campaign = Game::new().with_campaign();
+        campaign.state = GameState::Playing;
+        let text = all_text(&layout(&frame(&campaign), None));
+        assert!(!text.contains("BROUGHT DOWN") && !text.contains("KEYSTONE"));
+    }
+
     #[test]
     fn game_over_offers_the_checkpoint_and_a_new_game() {
         let mut game = Game::new().with_campaign();
@@ -1760,6 +1975,15 @@ mod tests {
             ..Record::default()
         };
         assert!(with(&game, new_best).contains("NEW BEST"));
+    }
+
+    #[test]
+    fn the_view_key_shows_on_the_menu_only() {
+        let mut game = Game::new();
+        let menu = all_text(&layout(&frame(&game), None));
+        assert!(menu.lines().any(|l| l == "V") && menu.contains("View: 2D"));
+        game.state = GameState::Paused;
+        assert!(!all_text(&layout(&frame(&game), None)).contains("View"));
     }
 
     #[test]

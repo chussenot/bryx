@@ -46,6 +46,8 @@ pub struct NamedSet {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Campaign,
+    /// The structural levels: bring it down.
+    Structures,
     Classic,
     Levelset,
     Shuffle,
@@ -85,7 +87,12 @@ impl Menu {
     /// pick, so a player learns the mode exists and where sets come from.
     pub fn new(sets: Vec<NamedSet>, classic_rules: bool) -> Self {
         let sets: Vec<NamedSet> = sets.into_iter().filter(|s| !s.levels.is_empty()).collect();
-        let mut modes = vec![Mode::Campaign, Mode::Classic, Mode::Levelset];
+        let mut modes = vec![
+            Mode::Campaign,
+            Mode::Structures,
+            Mode::Classic,
+            Mode::Levelset,
+        ];
         if !sets.is_empty() {
             modes.push(Mode::Shuffle);
         }
@@ -139,7 +146,7 @@ impl Menu {
 
     fn enabled(&self, mode: Mode) -> bool {
         match mode {
-            Mode::Campaign | Mode::Classic | Mode::Music => true,
+            Mode::Campaign | Mode::Structures | Mode::Classic | Mode::Music => true,
             Mode::Levelset | Mode::Shuffle => !self.sets.is_empty(),
         }
     }
@@ -198,6 +205,10 @@ impl Menu {
             // The Music row plays no run: the campaign's field is only the
             // backdrop (`main` keeps Space from starting it).
             Mode::Campaign | Mode::Music => Game::new().with_campaign().with_features(rules),
+            // Its own rules, whatever the flags: the rally is its score.
+            Mode::Structures => Game::new()
+                .with_structures()
+                .with_features(Features::STRUCTURES),
             Mode::Classic => Game::new().with_features(Features::V1),
             Mode::Levelset => {
                 let mut game = Game::new().with_features(loaded_rules);
@@ -223,6 +234,7 @@ impl Menu {
     fn key(&self, mode: Mode, set: usize) -> RecordKey {
         let (progression, loaded) = match mode {
             Mode::Campaign | Mode::Music => (Progression::Campaign, false),
+            Mode::Structures => (Progression::Structures, false),
             Mode::Classic => (Progression::Classic, false),
             Mode::Shuffle => (Progression::Shuffle, true),
             Mode::Levelset => (
@@ -237,9 +249,11 @@ impl Menu {
         RecordKey {
             progression,
             classic_rules: loaded && self.classic_rules,
-            // Classic is v1, whose score rally scoring never touches.
+            // Classic is v1, whose score rally scoring never touches; the
+            // structures always score by the rally, so the flag changes
+            // nothing there and they keep one record.
             rally_score: self.rally_score
-                && mode != Mode::Classic
+                && !matches!(mode, Mode::Classic | Mode::Structures)
                 && !(loaded && self.classic_rules),
         }
     }
@@ -249,6 +263,7 @@ impl Menu {
     pub fn label(&self) -> String {
         match self.mode() {
             Mode::Campaign | Mode::Music => "campaign".into(),
+            Mode::Structures => "structures".into(),
             Mode::Classic => "classic".into(),
             Mode::Shuffle => "shuffle".into(),
             Mode::Levelset => format!(
@@ -265,10 +280,15 @@ impl Menu {
 
     /// Every record the picker can show: each mode's, each set's.
     pub fn record_keys(&self) -> Vec<RecordKey> {
-        let mut keys: Vec<RecordKey> = [Mode::Campaign, Mode::Classic, Mode::Shuffle]
-            .into_iter()
-            .map(|mode| self.key(mode, 0))
-            .collect();
+        let mut keys: Vec<RecordKey> = [
+            Mode::Campaign,
+            Mode::Structures,
+            Mode::Classic,
+            Mode::Shuffle,
+        ]
+        .into_iter()
+        .map(|mode| self.key(mode, 0))
+        .collect();
         keys.extend((0..self.sets.len()).map(|i| self.key(Mode::Levelset, i)));
         keys
     }
@@ -299,6 +319,16 @@ impl Menu {
                     crate::levels::CAMPAIGN.len()
                 ),
                 aside: aside_best(Mode::Campaign),
+                enabled: true,
+            },
+            Mode::Structures => MenuRow {
+                name: "STRUCTURES",
+                value: None,
+                detail: format!(
+                    "{}: find the weak point, bring it down",
+                    levels(crate::levels::STRUCTURES.len())
+                ),
+                aside: aside_best(Mode::Structures),
                 enabled: true,
             },
             Mode::Classic => MenuRow {
@@ -404,12 +434,14 @@ mod tests {
         let names: Vec<_> = view.rows.iter().map(|r| r.name).collect();
         assert_eq!(
             names,
-            ["CAMPAIGN", "CLASSIC", "LEVELSET", "MUSIC"],
+            ["CAMPAIGN", "STRUCTURES", "CLASSIC", "LEVELSET", "MUSIC"],
             "no Shuffle"
         );
-        assert!(!view.rows[2].enabled);
-        assert!(view.rows[2].detail.contains("fetch-levelsets"));
+        assert!(!view.rows[3].enabled);
+        assert!(view.rows[3].detail.contains("fetch-levelsets"));
 
+        assert!(menu.nav(Nav::Down));
+        assert_eq!(menu.mode(), Mode::Structures);
         assert!(menu.nav(Nav::Down));
         assert_eq!(menu.mode(), Mode::Classic);
         assert!(menu.nav(Nav::Down), "steps over the disabled row");
@@ -428,14 +460,14 @@ mod tests {
     fn up_and_down_walk_every_mode_and_wrap() {
         let mut menu = Menu::new(vec![set("A", 3)], false);
         let mut seen = vec![menu.mode()];
-        for _ in 0..5 {
+        for _ in 0..6 {
             menu.nav(Nav::Down);
             seen.push(menu.mode());
         }
         use Mode::*;
         assert_eq!(
             seen,
-            [Campaign, Classic, Levelset, Shuffle, Music, Campaign]
+            [Campaign, Structures, Classic, Levelset, Shuffle, Music, Campaign]
         );
         menu.nav(Nav::Up);
         assert_eq!(menu.mode(), Music);
@@ -488,7 +520,7 @@ mod tests {
         assert!(!menu.nav(Nav::Right), "Campaign has no value to change");
         menu.select(Mode::Levelset);
         let shown = |menu: &Menu| {
-            menu.view(|_| Best::default()).rows[2]
+            menu.view(|_| Best::default()).rows[3]
                 .value
                 .clone()
                 .unwrap()
@@ -501,7 +533,7 @@ mod tests {
         assert!(menu.nav(Nav::Left));
         assert_eq!(shown(&menu), "B");
         assert_eq!(
-            menu.view(|_| Best::default()).rows[2].aside,
+            menu.view(|_| Best::default()).rows[3].aside,
             Aside::Position { index: 2, count: 2 }
         );
     }
@@ -571,6 +603,7 @@ mod tests {
         let view = menu.view(|key| {
             let score = match key.progression {
                 Progression::Campaign => 12_000,
+                Progression::Structures => 7_700,
                 Progression::Classic => 3_400,
                 Progression::Shuffle => 900,
                 Progression::Set(hash) if hash == a => 450,
@@ -580,10 +613,12 @@ mod tests {
         });
         assert_eq!(view.selected, 1);
         assert_eq!(view.rows[0].aside, Aside::Best(12_000));
-        assert_eq!(view.rows[1].aside, Aside::Best(3_400));
-        assert_eq!(view.rows[2].detail, "3 levels, best 450");
-        assert_eq!(view.rows[3].aside, Aside::Best(900));
-        assert_eq!(view.rows[3].detail, "10 levels drawn from all 1 sets");
+        assert_eq!(view.rows[1].name, "STRUCTURES");
+        assert_eq!(view.rows[1].aside, Aside::Best(7_700));
+        assert_eq!(view.rows[2].aside, Aside::Best(3_400));
+        assert_eq!(view.rows[3].detail, "3 levels, best 450");
+        assert_eq!(view.rows[4].aside, Aside::Best(900));
+        assert_eq!(view.rows[4].detail, "10 levels drawn from all 1 sets");
     }
 
     /// Each set, Shuffle, v1 rules and rally scoring keep records apart;
@@ -594,7 +629,7 @@ mod tests {
         let keys = menu.record_keys();
         let unique: std::collections::HashSet<_> = keys.iter().collect();
         assert_eq!(unique.len(), keys.len(), "{keys:?}");
-        assert_eq!(keys.len(), 5);
+        assert_eq!(keys.len(), 6);
 
         menu.select(Mode::Levelset);
         let first = menu.record_key();
@@ -603,6 +638,15 @@ mod tests {
 
         let rally = Menu::new(vec![set("A", 3)], false).with_rally_score(true);
         assert!(rally.record_key().rally_score, "campaign, rally scored");
+        let mut structures = rally.clone();
+        structures.select(Mode::Structures);
+        assert!(
+            !structures.record_key().rally_score,
+            "the structures always score by the rally: one record"
+        );
+        let built = structures.build(&mut rng());
+        assert_eq!(built.level_set(), LevelSetKind::Structures);
+        assert_eq!(built.features, Features::STRUCTURES);
         let mut rally_classic = rally.clone();
         rally_classic.select(Mode::Classic);
         assert!(!rally_classic.record_key().rally_score, "Classic is v1's");

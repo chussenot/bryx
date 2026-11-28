@@ -14,12 +14,13 @@ cargo run --release
 No assets or setup required — it builds and launches straight from a fresh
 clone, into a 32-level campaign: simple rows, staircases, frames, columns,
 and walls of armored and indestructible bricks. The HUD shows each level's
-name. The menu picks what to play: the **Campaign**, **Classic** (the three
+name. The menu picks what to play: the **Campaign**, **Structures** (see
+below), **Classic** (the three
 levels the game was first specified with, under its first rules), one of
 the fetched **Levelsets** (see [Thousands of levels](#thousands-of-levels)),
 or a **Shuffle** of ten levels drawn from all of them. ↑/↓ choose the
-mode, ←/→ the set, Space plays. `--classic` and `--levelset` open the menu
-on that choice.
+mode, ←/→ the set, Space plays. `--classic`, `--structures` and
+`--levelset` open the menu on that choice.
 
 ![The 32 campaign levels](docs/campaign.png)
 
@@ -37,11 +38,61 @@ cargo run --release -- --renderer 3d
 
 ![3D renderer](render3d.png)
 
+## Structures: bring it down
+
+```bash
+cargo run --release -- --structures
+```
+
+![A beam is cut, the beams on the other side crack, and the block comes down with the keystone](docs/design/structures.png)
+
+Thirty-two levels in four acts, as many as the campaign, where the bricks
+hold each other up, and the point is not to clear them but to find what
+they stand on. The first two come down to one
+cut; after that no single brick does it, and a level is a sequence of
+cuts.
+[`docs/concept.md`](docs/concept.md) is the idea;
+[`docs/design/structural-gameplay.md`](docs/design/structural-gameplay.md)
+the rules.
+
+- **Steel is an anchor.** Every other brick stands only while a chain of
+  touching bricks leads from it to steel. Cut the last chain and what it
+  held falls, and breaks what it lands on.
+- **A brick that holds others carries them**, and wears a mark along its
+  lower edge, longer the nearer it is to its limit. One carrying too much
+  glows orange, cracks and gives way.
+- **The keystone** (gold, with a diamond) is the objective. Nothing that
+  strikes it breaks it. When nothing holds it, it falls, and the level is
+  won.
+- **Stay out from under it.** A falling brick that lands on the paddle
+  holds it still for three quarters of a second, with the ball still in
+  flight. A bar shows where each falling brick will land, on the floor or
+  on the brick it will hit, and brightens as it nears.
+- **Use it.** A falling section cracks or breaks what it lands on, and a
+  cracked support carries half. Drop one part of a structure on another.
+- **Then catch it.** Once the keystone is down, the falling bricks turn
+  gold, and each one the paddle catches scores again.
+
+| Brick | Look | Hits | Carries |
+|---|---|---|---|
+| Normal | red | 1 | 4 bricks |
+| Armored | blue, then amber | 2 | 3 per hit left |
+| Support | violet, fluted | 2 | 6 per hit left |
+| Beam, tie | pale steel, thin | 1 | 6; a beam holds sideways, a tie up and down |
+| Keystone | gold, a diamond | none | any |
+| Anchor | graphite, hatched | none | any |
+
+A collapse belongs to the shot that set it off: its bricks score twice a
+brick the ball broke, climbing the rally's multiplier from that shot,
+whatever the paddle does while they fall. The same cut always gives the same collapse: no physics engine, no
+chance.
+
 ## Playtesting
 
 `--playtest-log FILE` appends one CSV row per level played: its time, the
 hunt for its last bricks, lives lost, the longest rally, capsules caught and
-points. `scripts/playtest-summary.py FILE...` compares sessions (baseline
+points, and on a structural level the bricks brought down, the collapses
+and the time to the first fall. `scripts/playtest-summary.py FILE...` compares sessions (baseline
 against `--rally-score`, human against autopilot) and flags the levels that
 drag. [`docs/playtest.md`](docs/playtest.md) is the protocol: who plays, what
 to watch, what to ask, and the listening pass. Nothing is sent anywhere.
@@ -69,8 +120,9 @@ budget, and the measurements.
 BRYX has a cinematic electronic-orchestral score: a sampled orchestra
 (a CC0 subset of VSCO 2 Community Edition) against analog-style synths.
 Music and effects are composed as text in `audio/score/` and rendered at
-build time by BRYX's own studio renderer, so the game runs no C at play
-time. Bricks broken in a rally climb the E minor
+build time by BRYX's studio renderer, extracted to
+[Sonomorph](https://github.com/chussenot/sonomorph), BRYX's sound library,
+so the game runs no C at play time. Bricks broken in a rally climb the E minor
 pentatonic scale in time with the music, and every effect is panned to
 where it happened. Every campaign level has its own track: 32 in all,
 built on three recurring themes across four acts, with loaded levelsets
@@ -96,6 +148,7 @@ changes it in game.
 | After a Victory     | Space, Escape or P: play again |
 | Q                   | Back to the menu, from the pause and end screens |
 | M                   | Sound: on, effects only, off |
+| V                   | On the menu: switch between the 2D and 3D view |
 | F11                 | Fullscreen on / off      |
 
 Keyboard only; menu and pause screens show the same keys on-screen.
@@ -142,8 +195,8 @@ who the game is for and the principles behind those choices.
 
 ## Capsules and asteroids
 
-A destroyed brick drops a capsule 15% of the time, any of eleven with equal
-odds. Catch it with the paddle:
+A destroyed brick drops a capsule 15% of the time: any of eleven with equal
+odds, or, 3% of the time, the rare twelfth, the Meteor rain. Catch it with the paddle:
 
 Each capsule is a pill in its own color, with its letter on it, so none
 depends on color alone:
@@ -161,6 +214,7 @@ depends on color alone:
 | Break | B | orange | Opens a gate at the bottom of the right wall. Slide the paddle out through it to skip to the next level; you score the bricks you skipped, no more. It stays open until you use it, lose a life or the level ends. It never drops on the last level of an act or of a set: finales are played to the last brick |
 | Explosive ball | E | chartreuse | For 15 s every ball glows chartreuse and blows up the brick it hits together with the eight around it (armored ones lose a hit); it bounces as usual |
 | Metal ball | I | silver | For 15 s every ball turns to steel: it breaks any breakable brick it touches, armored ones included, and flies straight on through. Indestructible bricks still turn it back |
+| Meteor rain | R | magenta | The rare one, 3% of capsules: twelve glowing meteorites rain on the bricks over a couple of seconds, each breaking the first brick under it, armored ones included. Indestructible bricks stop them, and none ever reaches the paddle. It ends if you lose the ball |
 
 The paddle takes the color of the gun or Glue it carries. Catching one
 laser replaces the other.
@@ -169,8 +223,9 @@ laser replaces the other.
 side to side. A ball that hits one blows it up and bounces off it, which
 can send it somewhere you didn't plan. The explosion also breaks the
 bricks around it (armored ones take one hit), so hitting one while it
-crosses the wall clears a cluster. The paddle and laser bolts blow them up
-too. Each is worth 100 points.
+crosses the wall clears a cluster. Laser bolts blow them up too. Each is
+worth 100 points, but one that reaches the paddle blows up on it and costs
+you 250, with a sour sound of its own: dodge them or shoot them.
 
 `cargo run --release -- --classic` plays as the game was first specified:
 Widen, Slow and Multiball only, and no asteroids.

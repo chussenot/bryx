@@ -35,7 +35,7 @@ use std::time::Duration;
 
 use crate::events::{GameEvent, PowerUpKind};
 use crate::game::{
-    forecast_crossing, Ball, Forecast, Game, GameState, Input, Paddle, PADDLE_SPEED,
+    forecast_crossing, Ball, Forecast, Game, GameState, Input, Landing, Paddle, PADDLE_SPEED,
     PLAYFIELD_WIDTH, POWERUP_FALL_SPEED,
 };
 use board::{Board, LANES};
@@ -72,6 +72,15 @@ const FORECAST_TICKS: u32 = 360;
 const CATCH_RETURN_MARGIN: f32 = 0.6;
 
 /// Lane names, in lane order: the keys a model chooses between.
+/// How far ahead the autopilot looks for falling bricks, how much room it
+/// leaves beside one, and how long one takes to pass the paddle.
+const DODGE_SECS: f32 = 1.0;
+const DODGE_MARGIN: f32 = 8.0;
+const DODGE_PASS_SECS: f32 = 0.1;
+/// How long a break is played out to see what it sets off: a drop, the
+/// overload it causes, and that overload giving way.
+const FORECAST_SECS: f32 = 4.0;
+
 pub const LANE_NAMES: [&str; LANES] = ["far_left", "left", "center", "right", "far_right"];
 
 /// What the strategist is told about the game at a decision point.
@@ -209,6 +218,11 @@ pub struct Autopilot {
     /// only when something the forecast left out happens: the paddle, a
     /// new asteroid, another ball breaking a brick first.
     forecasts: Vec<Option<Tracked>>,
+    /// On a structural level, the weak point: where to aim, and the number
+    /// of bricks it was worked out for (it is worked out again when one
+    /// goes). `None` aims by lane, as on any other level.
+    weak_point: Option<(f32, f32)>,
+    weak_point_for: usize,
 }
 
 /// A forecast and how many ticks of it have played out.
@@ -239,6 +253,8 @@ impl Autopilot {
             stats: Stats::default(),
             space_held: false,
             forecasts: Vec::new(),
+            weak_point: None,
+            weak_point_for: usize::MAX,
         }
     }
 
@@ -297,6 +313,7 @@ impl Autopilot {
     fn pilot(&mut self, game: &Game, dt: f32, input: &mut Input) {
         let paddle = &game.paddle;
         let board = Board::from_game(game);
+        self.find_weak_point(game);
 
         if game.ball.attached {
             let waited = match self.serve {
@@ -391,12 +408,61 @@ impl Autopilot {
             }
         }
 
+        target_x = Self::clear_of_debris(game, target_x, hit.time);
         (input.left, input.right) = pilot::steer(paddle.x, target_x, dt);
 
         // A gun fires while Space is held, and every bolt can only help.
         // A glued ball's release owns Space while there is one (above).
         if game.gun.is_some() && fleet().all(|b| b.glued.is_none()) {
             input.space = true;
+        }
+    }
+
+    /// Moves `target_x` out from under any falling brick that would land
+    /// on the paddle there within `DODGE_SECS`, to the nearest clear spot,
+    /// unless that costs the ball: when the paddle could not be back under
+    /// the ball in time, it stays, since a stun where the ball lands still
+    /// returns it.
+    fn clear_of_debris(game: &Game, target_x: f32, ball_secs: f32) -> f32 {
+        let paddle = &game.paddle;
+        let half = paddle.width / 2.0 + DODGE_MARGIN;
+        // Each falling brick the paddle could be under: the stretch of
+        // paddle positions it would hit, and when it gets there. Only what
+        // threatens: a brick to catch in the finale is no reason to move.
+        let mut spans: Vec<(f32, f32, f32)> = game
+            .fall_zones()
+            .iter()
+            .filter(|zone| zone.falling && zone.on == Landing::Paddle && zone.secs < DODGE_SECS)
+            .map(|zone| {
+                (
+                    zone.x - zone.width / 2.0 - half,
+                    zone.x + zone.width / 2.0 + half,
+                    zone.secs,
+                )
+            })
+            .collect();
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let hit_at = |x: f32| spans.iter().find(|s| s.0 < x && x < s.1).map(|s| s.2);
+        let Some(strike_secs) = hit_at(target_x) else {
+            return target_x;
+        };
+        // The nearest spot outside every stretch, on the field.
+        let (lo, hi) = (paddle.width / 2.0, PLAYFIELD_WIDTH - paddle.width / 2.0);
+        let clear = spans
+            .iter()
+            .flat_map(|s| [s.0, s.1])
+            .filter(|&x| (lo..=hi).contains(&x) && hit_at(x).is_none())
+            .min_by(|a, b| (a - target_x).abs().total_cmp(&(b - target_x).abs()));
+        let Some(clear) = clear else {
+            return target_x;
+        };
+        // Step aside only if there is time to be back for the ball.
+        let back_in_time =
+            pilot::reachable(clear, target_x, ball_secs - strike_secs - DODGE_PASS_SECS);
+        if back_in_time {
+            clear
+        } else {
+            target_x
         }
     }
 
@@ -462,7 +528,9 @@ impl Autopilot {
     /// bank shot no lane target describes, and an aim this precise would
     /// otherwise replay the same few trajectories forever.
     fn aim_point(&self, board: &Board) -> (f32, f32) {
-        let (x, y) = board.lanes[self.plan.lane].target;
+        let (x, y) = self
+            .weak_point
+            .unwrap_or(board.lanes[self.plan.lane].target);
         if self.fruitless < 2 {
             return (x, y);
         }
@@ -474,6 +542,96 @@ impl Autopilot {
         // width and never fall back into a short cycle.
         let fraction = (self.fruitless as f32 * 0.618_034).fract();
         (40.0 + fraction * (crate::game::PLAYFIELD_WIDTH - 80.0), y)
+    }
+
+    /// On a structural level, finds where to aim, among the bricks a ball
+    /// can get at (one with nothing under it, or open to a side):
+    ///
+    /// 1. the brick whose loss brings the keystone down
+    ///    (`Structure::what_falls`), for the fewest hits;
+    /// 2. else the one whose loss brings the most bricks down;
+    /// 3. else, when no single brick brings anything down, one of the
+    ///    bricks that hold the keystone up (`Structure::keystone_holds`),
+    ///    or the reachable brick nearest one: each one broken is a chain
+    ///    fewer, until a brick of the first kind appears.
+    ///
+    /// The lowest on a tie: the easiest to reach. Aims by lane, as on any
+    /// other level, when there is nothing to find.
+    fn find_weak_point(&mut self, game: &Game) {
+        if !game.structure.is_active() {
+            self.weak_point = None;
+            return;
+        }
+        // Worked out again when a brick goes or is cracked.
+        let seen = game.bricks.len() * 4
+            + game
+                .bricks
+                .iter()
+                .map(|b| usize::from(b.hits_remaining))
+                .sum::<usize>();
+        if self.weak_point_for == seen {
+            return;
+        }
+        self.weak_point_for = seen;
+        let (w, h) = (crate::levels::BRICK_WIDTH, crate::levels::BRICK_HEIGHT);
+        let brick_at = |x: f32, y: f32| {
+            game.bricks
+                .iter()
+                .any(|b| (b.x - x).abs() < w / 2.0 && (b.y - y).abs() < h / 2.0)
+        };
+        // Under it if a ball can come up at it, its middle otherwise.
+        let reachable = |brick: &crate::game::Brick| {
+            let open_below = !brick_at(brick.x, brick.y + h);
+            let open_beside = !brick_at(brick.x - w, brick.y) || !brick_at(brick.x + w, brick.y);
+            match (brick.kind.breakable(), open_below, open_beside) {
+                (true, true, _) => Some((brick.x, brick.y + brick.height / 2.0)),
+                (true, false, true) => Some((brick.x, brick.y)),
+                _ => None,
+            }
+        };
+
+        let mut best: Option<(u32, f32, (f32, f32))> = None;
+        for (index, brick) in game.bricks.iter().enumerate() {
+            let Some(target) = reachable(brick) else {
+                continue;
+            };
+            // The graph says whether anything would fall; only then is the
+            // break played out, to see what that fall breaks in turn.
+            if game.structure.what_falls(&game.bricks, index).0 == 0 {
+                continue;
+            }
+            let forecast = game.forecast_break(index, FORECAST_SECS);
+            let hits = u32::from(brick.hits_remaining.max(1));
+            let worth = (forecast.brought_down + if forecast.keystone { 1000 } else { 0 }) / hits;
+            if worth == 0 {
+                continue;
+            }
+            if best.is_none_or(|(w, y, _)| (worth, brick.y) > (w, y)) {
+                best = Some((worth, brick.y, target));
+            }
+        }
+        if best.is_none() {
+            // Nothing falls to one brick: go for what holds the keystone.
+            let holds = game.structure.keystone_holds(&game.bricks);
+            let mut nearest: Option<(f32, f32, (f32, f32))> = None;
+            for brick in &game.bricks {
+                let Some(target) = reachable(brick) else {
+                    continue;
+                };
+                let gap = holds
+                    .iter()
+                    .map(|&i| (game.bricks[i].x - brick.x).hypot(game.bricks[i].y - brick.y))
+                    .fold(f32::INFINITY, f32::min);
+                if nearest.is_none_or(|(g, y, _)| (gap, -brick.y) < (g, -y)) {
+                    nearest = Some((gap, brick.y, target));
+                }
+            }
+            self.weak_point = nearest
+                .filter(|(gap, _, _)| gap.is_finite())
+                .map(|(_, _, target)| target);
+            return;
+        }
+        self.weak_point = best.map(|(_, _, target)| target);
     }
 
     /// After a paddle hit: keep, replace or re-ask for the lane.
@@ -681,6 +839,217 @@ mod tests {
                 autopilot.stats()
             );
         }
+    }
+
+    /// Plays the structures with the heuristic alone until it has cleared
+    /// `through` of them (or the run ends, or an hour of play passes), and
+    /// prints each level's time: the pacing table in
+    /// docs/design/structural-gameplay.md. Returns the game, the bricks
+    /// broken and brought down, and the times the paddle was struck.
+    fn bring_down(seed: u64, through: usize) -> (Game, u32, u32, usize) {
+        let mut game = Game::with_seed(seed)
+            .with_structures()
+            .with_features(crate::game::Features::STRUCTURES);
+        let mut autopilot = Autopilot::new(None, 1);
+        let (mut direct, mut collapsed, mut struck) = (0, 0, 0);
+        let mut level = game.level;
+        let mut tally = (0, 0);
+        let mut started = 0.0;
+        // Before the keystone fell, in the level under way: collapses that
+        // ended, hits falling bricks dealt the structure, paddle hits.
+        let (mut keystone, mut inter, mut debris, mut hits) = (false, 0, 0, 0);
+        for _ in 0..120 * 3600 {
+            let input = autopilot.input(&game, DT);
+            game.tick(&input, DT);
+            autopilot.observe(&game);
+            for event in &game.events {
+                match event {
+                    GameEvent::KeystoneFell { .. } => keystone = true,
+                    GameEvent::CollapseEnded { bricks, .. } if !keystone && *bricks >= 2 => {
+                        inter += 1;
+                    }
+                    GameEvent::BrickStruck {
+                        by: crate::events::Striker::Debris,
+                        ..
+                    } if !keystone => debris += 1,
+                    GameEvent::PaddleStruck { .. } => hits += 1,
+                    _ => {}
+                }
+            }
+            game.events.clear();
+            if game.level != level || game.state == GameState::Victory {
+                direct += tally.0;
+                collapsed += tally.1;
+                struck += hits;
+                println!(
+                    "  seed {seed} level {level:>2} {:<10} {:>4.0} s, {:>2} broken, {:>2} brought down, \
+                     {inter} intermediate, {debris} debris hits, {hits} paddle hits, {} lives",
+                    crate::levels::STRUCTURES[level - 1].name,
+                    game.run_secs() - started,
+                    tally.0,
+                    tally.1,
+                    game.lives
+                );
+                started = game.run_secs();
+                level = game.level;
+                (keystone, inter, debris, hits) = (false, 0, 0, 0);
+            }
+            tally = (game.level_direct, game.level_collapsed);
+            let over = matches!(game.state, GameState::Victory | GameState::GameOver);
+            if over || game.level > through {
+                break;
+            }
+        }
+        println!(
+            "seed {seed}: {direct} broken, {collapsed} brought down, {:.0} s, score {}, \
+             struck {struck} times, {} lives",
+            game.run_secs(),
+            game.score,
+            game.lives
+        );
+        (game, direct, collapsed, struck)
+    }
+
+    /// The structures are brought down, not cleared: the heuristic finds
+    /// each one's weak point (`find_weak_point`) and gets through the first
+    /// act with more bricks fallen than broken.
+    #[test]
+    fn the_heuristic_brings_down_the_first_act_of_structures() {
+        for seed in [1, 7, 42] {
+            let (game, direct, collapsed, _) = bring_down(seed, 8);
+            assert!(
+                game.level > 8,
+                "seed {seed}: {:?} at level {}, {} bricks left, {} lives",
+                game.state,
+                game.level,
+                game.bricks.len(),
+                game.lives,
+            );
+            assert!(
+                collapsed > direct,
+                "seed {seed}: {direct} broken, {collapsed} brought down"
+            );
+        }
+    }
+
+    /// The Chandelier hid its third hold under the ceiling and took one
+    /// seed ten minutes; the structure in its place has all its holds in
+    /// the open. Level 3 is the difference between playing to the end of
+    /// level 3 and to the end of level 2, the same play up to there.
+    #[test]
+    fn the_third_structure_is_brought_down_in_good_time_whatever_the_seed() {
+        let mut slowest = 0.0f32;
+        for seed in 1..=16 {
+            let (before, ..) = bring_down(seed, 2);
+            let (after, ..) = bring_down(seed, 3);
+            assert!(after.level > 3, "seed {seed}: stuck on level 3");
+            let secs = after.run_secs() - before.run_secs();
+            slowest = slowest.max(secs);
+            assert!(secs < 150.0, "seed {seed}: level 3 took {secs:.0} s");
+        }
+        println!("slowest level 3: {slowest:.0} s");
+    }
+
+    #[test]
+    #[ignore = "scratch"]
+    fn scratch_dump_level3() {
+        let mut game = Game::with_seed(3)
+            .with_structures()
+            .with_features(crate::game::Features::STRUCTURES);
+        let mut autopilot = Autopilot::new(None, 1);
+        let mut in3 = 0.0;
+        for _ in 0..120 * 600 {
+            let input = autopilot.input(&game, DT);
+            game.tick(&input, DT);
+            autopilot.observe(&game);
+            game.events.clear();
+            if game.level == 3 {
+                in3 += DT;
+                for mark in [20.0f32, 60.0, 120.0, 180.0] {
+                    if (in3 - mark).abs() < DT / 2.0 {
+                        let mut v: Vec<String> = game
+                            .bricks
+                            .iter()
+                            .map(|b| {
+                                format!("{:?}{}@({:.0},{:.0})", b.kind, b.hits_remaining, b.x, b.y)
+                            })
+                            .collect();
+                        v.sort();
+                        println!(
+                            "t={mark}: ball ({:.0},{:.0}) lives {} bricks {}: {:?}",
+                            game.ball.x,
+                            game.ball.y,
+                            game.lives,
+                            v.len(),
+                            v
+                        );
+                    }
+                }
+            }
+            if game.level > 3 {
+                break;
+            }
+        }
+    }
+
+    /// All 32, to the Victory screen: about half an hour of play a seed.
+    #[test]
+    #[ignore = "a benchmark: a few seconds in release, minutes in debug"]
+    fn the_heuristic_brings_down_every_structure() {
+        for seed in [1, 7, 42] {
+            let (game, direct, collapsed, _) = bring_down(seed, usize::MAX);
+            assert!(
+                won(&game),
+                "seed {seed}: {:?} at level {}, {} bricks left, {} lives",
+                game.state,
+                game.level,
+                game.bricks.len(),
+                game.lives,
+            );
+            assert!(
+                collapsed > direct,
+                "seed {seed}: {direct} broken, {collapsed} brought down"
+            );
+        }
+    }
+
+    #[test]
+    fn the_autopilot_steps_out_from_under_a_falling_brick_unless_it_costs_the_ball() {
+        let mut game = Game::with_seed(1)
+            .with_structures()
+            .with_features(crate::game::Features::STRUCTURES);
+        game.state = GameState::Playing;
+        let brick = crate::game::Debris {
+            x: 400.0,
+            y: 300.0,
+            vy: 400.0,
+            width: 52.0,
+            height: 22.0,
+            kind: crate::levels::BrickKind::Normal,
+            hits_remaining: 1,
+            points: 0,
+        };
+        // Nothing falling: the target stands.
+        assert_eq!(Autopilot::clear_of_debris(&game, 400.0, 5.0), 400.0);
+        game.debris.push(brick);
+        // Under it, with time to spare: out to the nearest clear spot,
+        // a paddle's half width and a margin from the brick.
+        let aside = Autopilot::clear_of_debris(&game, 410.0, 5.0);
+        let reach = game.paddle.width / 2.0 + 26.0;
+        assert!(aside >= 400.0 + reach, "{aside}");
+        assert!(aside < 400.0 + reach + 20.0, "the nearest: {aside}");
+        // Already clear of it: untouched.
+        assert_eq!(Autopilot::clear_of_debris(&game, 600.0, 5.0), 600.0);
+        // The ball lands with it: the paddle stays for the ball.
+        assert_eq!(Autopilot::clear_of_debris(&game, 410.0, 0.5), 410.0);
+        // Too far up to matter yet.
+        game.debris[0].y = -400.0;
+        game.debris[0].vy = 0.0;
+        assert_eq!(Autopilot::clear_of_debris(&game, 410.0, 5.0), 410.0);
+        // The keystone is down: nothing that falls can touch the paddle.
+        game.debris[0].y = 300.0;
+        game.finale = true;
+        assert_eq!(Autopilot::clear_of_debris(&game, 410.0, 5.0), 410.0);
     }
 
     #[test]
@@ -904,13 +1273,21 @@ mod rally_sync {
     #[test]
     fn the_scored_rally_is_the_rally_heard_and_seen() {
         let mut compared = 0;
-        for seed in 1..=3 {
-            let mut game = Game::with_seed(seed)
-                .with_campaign()
-                .with_features(Features {
-                    rally_score: true,
-                    ..Features::ALL
-                });
+        // The campaign, and the structures: there a brick that falls is
+        // one more of the rally, like a brick that breaks.
+        for seed in 1..=4 {
+            let mut game = if seed == 4 {
+                Game::with_seed(seed)
+                    .with_structures()
+                    .with_features(Features::STRUCTURES)
+            } else {
+                Game::with_seed(seed)
+                    .with_campaign()
+                    .with_features(Features {
+                        rally_score: true,
+                        ..Features::ALL
+                    })
+            };
             game.state = GameState::Playing;
             let mut autopilot = Autopilot::new(None, 1);
             let mut rally = Rally::default();

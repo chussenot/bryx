@@ -43,9 +43,12 @@ pub struct Args {
     /// `None` keeps the default of every paddle hit; a missing or
     /// non-numeric value is ignored like any other bad value here.
     pub autopilot_every: Option<u32>,
-    /// `--classic`: v1's rules, without the post-v1 additions (the Glue
-    /// power-up, asteroids). See `game::Features`.
+    /// `--classic`: v1's rules, without the post-v1 additions (the newer
+    /// power-ups, asteroids). See `game::Features`.
     pub classic: bool,
+    /// `--structures`: start on the menu's Structures row (the structural
+    /// levels, `levels::STRUCTURES`).
+    pub structures: bool,
     /// `--rally-score`: the experimental rally scoring
     /// (`game::Features::rally_score`), for every mode but Classic.
     pub rally_score: bool,
@@ -83,6 +86,7 @@ fn parse_args<I: Iterator<Item = String>>(mut it: I) -> Args {
             },
             "--autopilot" => args.autopilot = true,
             "--classic" => args.classic = true,
+            "--structures" => args.structures = true,
             "--rally-score" => args.rally_score = true,
             "--playtest-log" => args.playtest_log = it.next(),
             "--autopilot-every" => {
@@ -116,6 +120,12 @@ mod tests {
     fn parse_recognizes_levelset_flag_with_its_value() {
         let args = parse_of(&["--levelset", "levels/custom.lbl"]);
         assert_eq!(args.levelset.as_deref(), Some("levels/custom.lbl"));
+    }
+
+    #[test]
+    fn parse_recognizes_structures() {
+        assert!(!parse_of(&[]).structures);
+        assert!(parse_of(&["--structures"]).structures);
     }
 
     #[test]

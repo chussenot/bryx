@@ -19,8 +19,9 @@
 //! pattern (`assets.rs`). See PRODUCT.md, "Accessibility & Inclusion".
 
 use crate::events::PowerUpKind;
-use crate::game::{BallMode, Game, POWER_WARNING_SECS};
+use crate::game::{BallMode, Brick, FallZone, Game, Landing, POWER_WARNING_SECS, TICK_RATE};
 use crate::levels::BrickKind;
+use crate::structure::{Phase, RULES};
 
 /// An sRGB color as authored: 8 bits per channel, no alpha.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,6 +186,16 @@ pub const BRICK_ARMORED_HIT: Rgb = hex(0xDE9A2C);
 /// Indestructible: graphite with diagonal hatching.
 pub const BRICK_INDESTRUCTIBLE: Rgb = hex(0x4A5160);
 
+/// Support, intact: violet, fluted like a column.
+pub const BRICK_SUPPORT: Rgb = hex(0x8F6BE0);
+/// Support after its first hit: paler and pinker, the flutes cracked. It
+/// now carries half as much.
+pub const BRICK_SUPPORT_HIT: Rgb = hex(0xC77DD9);
+/// Beam and tie: pale steel, thin.
+pub const BRICK_BEAM: Rgb = hex(0xAEB9C9);
+/// Keystone: gold, with a diamond.
+pub const BRICK_KEYSTONE: Rgb = hex(0xF5C542);
+
 /// A brick's color for its kind and remaining hits.
 pub fn brick(kind: BrickKind, hits_remaining: u8) -> Rgb {
     match kind {
@@ -192,6 +203,148 @@ pub fn brick(kind: BrickKind, hits_remaining: u8) -> Rgb {
         BrickKind::Armored if hits_remaining >= 2 => BRICK_ARMORED,
         BrickKind::Armored => BRICK_ARMORED_HIT,
         BrickKind::Indestructible => BRICK_INDESTRUCTIBLE,
+        BrickKind::Support if hits_remaining >= 2 => BRICK_SUPPORT,
+        BrickKind::Support => BRICK_SUPPORT_HIT,
+        BrickKind::Beam | BrickKind::Tie => BRICK_BEAM,
+        BrickKind::Keystone => BRICK_KEYSTONE,
+    }
+}
+
+// -- structure: what a brick's state looks like ------------------------------
+
+/// A brick carrying more than it can, cracking: hot orange, the warning
+/// before it gives way.
+pub const STRUCT_OVERLOAD: Rgb = hex(0xFF7A1A);
+/// A brick nothing holds any more, about to fall: white-hot.
+pub const STRUCT_UNSTABLE: Rgb = hex(0xFFF1D6);
+/// The mark on a brick that carries others: the weak point.
+pub const STRUCT_BEARING: Rgb = hex(0xFFD9A0);
+
+/// The paddle while it is held by a falling brick's strike: the overload's
+/// orange, strongest at the strike and easing as it comes free. `None`
+/// when it is free.
+pub fn paddle_stun(game: &Game) -> Option<(Rgb, f32)> {
+    (game.paddle_stun > 0.0).then(|| {
+        let left = (game.paddle_stun / RULES.stun_secs).clamp(0.0, 1.0);
+        (STRUCT_OVERLOAD, 0.45 + 0.4 * left)
+    })
+}
+
+/// How far ahead a landing mark starts to strengthen: it is faint for
+/// anything further off.
+const FALL_ZONE_HORIZON_SECS: f32 = 1.2;
+
+/// The mark where a brick that is coming down will land (`Game::fall_zones`),
+/// on the paddle's line or on the brick it will hit: its color and how
+/// much of it.
+/// - Before the keystone falls it is a threat: pale while the brick still
+///   shakes in place, the overload's orange once it is in the air.
+/// - After, on the paddle's line, it is something to catch: the keystone's
+///   gold.
+/// - It strengthens as the landing nears, so "now" reads apart from "in a
+///   second".
+pub fn fall_zone(zone: &FallZone) -> (Rgb, f32) {
+    let soon = (1.0 - zone.secs / FALL_ZONE_HORIZON_SECS).clamp(0.0, 1.0);
+    match (zone.on, zone.falling) {
+        (Landing::Catch, _) => (BRICK_KEYSTONE, 0.45 + 0.5 * soon),
+        (_, true) => (STRUCT_OVERLOAD, 0.4 + 0.55 * soon),
+        (_, false) => (STRUCT_UNSTABLE, 0.3 + 0.25 * soon),
+    }
+}
+
+/// A falling brick's overlay: none while it threatens, the keystone's gold
+/// once the keystone is down and it is there to be caught.
+pub fn debris_glow(game: &Game) -> Option<(Rgb, f32)> {
+    game.finale.then_some((BRICK_KEYSTONE, 0.55))
+}
+
+/// `a` toward `b` by `t`, 0 to 1, channel by channel in sRGB.
+fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
+    let t = t.clamp(0.0, 1.0);
+    let ch = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
+    Rgb(ch(a.0, b.0), ch(a.1, b.1), ch(a.2, b.2))
+}
+
+/// How a brick's structural state shows: one reading of the simulation,
+/// drawn by both renderers, so they say the same thing.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct StructureLook {
+    /// Where the brick is drawn from its place: an unstable brick shakes.
+    pub offset: [f32; 2],
+    /// A color laid over the brick and how much of it, 0 to 1: hot orange
+    /// on an overloaded brick, stronger and beating faster as it nears
+    /// giving way; white-hot on one about to fall.
+    pub glow: Option<(Rgb, f32)>,
+    /// The load mark: a bar along the brick's lower edge, as long as the
+    /// share of its limit it carries (0: it carries nothing, no bar; 1: at
+    /// its limit or past it).
+    pub bearing: f32,
+    /// The load mark's color: pale up to half its limit, then warming to
+    /// the overload's orange as it nears it. What is close to failure
+    /// reads before it fails.
+    pub bearing_color: Rgb,
+}
+
+impl Default for Rgb {
+    fn default() -> Self {
+        STRUCT_BEARING
+    }
+}
+
+/// An unstable brick's shake, in px, and how fast.
+const UNSTABLE_SHAKE_PX: f32 = 1.5;
+const UNSTABLE_SHAKE_HZ: f32 = 11.0;
+
+/// The look of `brick`'s structural state now. With reduced motion nothing
+/// shakes or beats: the glow alone says it, steady.
+pub fn structure_look(game: &Game, brick: &Brick, reduced_motion: bool) -> StructureLook {
+    let state = game.structure.state(brick);
+    let share = f32::from(state.load) / f32::from(state.capacity.max(1));
+    let bearing = if state.load == 0 {
+        0.0
+    } else {
+        share.clamp(0.25, 1.0)
+    };
+    let bearing_color = mix(STRUCT_BEARING, STRUCT_OVERLOAD, (share - 0.5) * 2.0);
+    match state.phase {
+        Phase::Intact | Phase::Stressed => StructureLook {
+            bearing,
+            bearing_color,
+            ..StructureLook::default()
+        },
+        Phase::Overloaded => {
+            // Seconds it has been cracking; its beat goes from 3 to 9 Hz
+            // over the time it has.
+            let t = state.progress * RULES.give_way_secs;
+            let beat = if reduced_motion {
+                1.0
+            } else {
+                let turns = 3.0 * t + 3.75 * t * t;
+                0.55 + 0.45 * (0.5 + 0.5 * (std::f32::consts::TAU * turns).cos())
+            };
+            StructureLook {
+                glow: Some((STRUCT_OVERLOAD, (0.3 + 0.45 * state.progress) * beat)),
+                bearing: 1.0,
+                bearing_color: STRUCT_OVERLOAD,
+                ..StructureLook::default()
+            }
+        }
+        Phase::Unstable => {
+            let secs = game.run_ticks as f32 / TICK_RATE;
+            // Each brick out of step with its neighbors.
+            let phase = brick.x * 0.37 + brick.y * 0.61;
+            let dx = if reduced_motion {
+                0.0
+            } else {
+                (std::f32::consts::TAU * UNSTABLE_SHAKE_HZ * secs + phase).sin() * UNSTABLE_SHAKE_PX
+            };
+            StructureLook {
+                offset: [dx, 0.0],
+                glow: Some((STRUCT_UNSTABLE, 0.4 + 0.25 * state.progress)),
+                bearing: 0.0,
+                bearing_color,
+            }
+        }
     }
 }
 
@@ -213,6 +366,9 @@ pub const CAPSULE_EXPLOSIVE_BALL: Rgb = hex(0xC5F03C);
 /// Polished steel, the lightest capsule: Tiny's gray is the dull one.
 /// Every ball wears it while the power lasts.
 pub const CAPSULE_METAL_BALL: Rgb = hex(0xE6E9F0);
+/// Magenta, the one hue between Multiball's purple and Glue's pink that
+/// no capsule had: the rare capsule reads as none of the others.
+pub const CAPSULE_METEOR_RAIN: Rgb = hex(0xE05BE8);
 
 /// A capsule's hue. The open Break gate, the laser bolts and a powered ball
 /// reuse their capsule's hue, so the cause and the effect read as one
@@ -230,12 +386,14 @@ pub fn capsule(kind: PowerUpKind) -> Rgb {
         PowerUpKind::Break => CAPSULE_BREAK,
         PowerUpKind::ExplosiveBall => CAPSULE_EXPLOSIVE_BALL,
         PowerUpKind::MetalBall => CAPSULE_METAL_BALL,
+        PowerUpKind::MeteorRain => CAPSULE_METEOR_RAIN,
     }
 }
 
 /// The letter on a capsule: the color-blind-safe half of its identity.
-/// Unique across the eleven; Super laser takes X because S is Slow's, and
-/// Metal ball takes I (iron) because M is Multiball's.
+/// Unique across the twelve; Super laser takes X because S is Slow's,
+/// Metal ball takes I (iron) because M is Multiball's, and Meteor rain
+/// takes R (rain) for the same reason.
 pub fn capsule_letter(kind: PowerUpKind) -> &'static str {
     match kind {
         PowerUpKind::Widen => "W",
@@ -249,11 +407,12 @@ pub fn capsule_letter(kind: PowerUpKind) -> &'static str {
         PowerUpKind::Break => "B",
         PowerUpKind::ExplosiveBall => "E",
         PowerUpKind::MetalBall => "I",
+        PowerUpKind::MeteorRain => "R",
     }
 }
 
 /// The ink a capsule's letter is set in: the field's own dark, which
-/// clears 4.5:1 on all eleven hues (`capsule_letters_clear_contrast`).
+/// clears 4.5:1 on all twelve hues (`capsule_letters_clear_contrast`).
 pub const CAPSULE_INK: Rgb = FIELD;
 
 // -- hazards and effects ---------------------------------------------------
@@ -261,6 +420,9 @@ pub const CAPSULE_INK: Rgb = FIELD;
 /// Asteroids: cratered stone, cool and desaturated, so the one warm thing
 /// about them is the explosion they become.
 pub const ASTEROID: Rgb = hex(0x8B7F9A);
+/// A meteorite of the Meteor rain: rock heated to the explosion's amber,
+/// so it reads as the thing about to strike, not as an asteroid to hit.
+pub const METEOR: Rgb = hex(0xFFB55E);
 /// An asteroid's explosion.
 pub const EXPLOSION: Rgb = hex(0xFFB55E);
 
@@ -299,6 +461,98 @@ pub fn rally(step: usize) -> Rgb {
 mod tests {
     use super::*;
     use crate::game::{BallPower, Gun, GunKind};
+
+    #[test]
+    fn a_brick_shows_what_it_carries_and_what_is_coming() {
+        use crate::game::{bricks_of_grid, Features};
+        use crate::structure::Structure;
+        // An anchor, a brick, and five more hung under it: the first one
+        // carries one too many; the rest carry less down the chain.
+        let grid = &["X", "1", "1", "1", "1", "1", "1"];
+        let mut game = Game::new()
+            .with_structures()
+            .with_features(Features::STRUCTURES);
+        let (bricks, origin) = bricks_of_grid(grid);
+        game.bricks = bricks;
+        game.structure = Structure::on_grid(origin);
+        game.structure.survey(&game.bricks, |_| {});
+
+        let look = |game: &Game, i: usize, reduced| structure_look(game, &game.bricks[i], reduced);
+        // Steel carries everything and shows nothing.
+        assert_eq!(look(&game, 0, false), StructureLook::default());
+        // The last carries nothing: no mark. The one over it carries one
+        // of its four: a short mark. Higher, a longer one.
+        assert_eq!(look(&game, 6, false).bearing, 0.0);
+        let (short, long) = (look(&game, 5, false).bearing, look(&game, 3, false).bearing);
+        assert!(0.0 < short && short < long && long < 1.0, "{short} {long}");
+        // Overloaded: a full mark and the orange glow, stronger as it
+        // nears giving way, and steady with reduced motion.
+        let first = look(&game, 1, true);
+        assert_eq!(first.bearing, 1.0);
+        let (color, early) = first.glow.unwrap();
+        assert_eq!(color, STRUCT_OVERLOAD);
+        for _ in 0..60 {
+            game.structure
+                .advance(&game.bricks, 1.0 / TICK_RATE, |_, _| {});
+        }
+        let (_, late) = look(&game, 1, true).glow.unwrap();
+        assert!(late > early, "{early} -> {late}");
+        assert_eq!(look(&game, 1, true).offset, [0.0, 0.0]);
+
+        // Cut loose: white-hot, and shaking unless motion is reduced.
+        game.bricks.remove(1);
+        game.structure.survey(&game.bricks, |_| {});
+        game.run_ticks = 7;
+        let loose = look(&game, 1, false);
+        assert_eq!(loose.glow.map(|g| g.0), Some(STRUCT_UNSTABLE));
+        assert_ne!(loose.offset[0], 0.0);
+        assert!(loose.offset[0].abs() <= UNSTABLE_SHAKE_PX);
+        assert_eq!(look(&game, 1, true).offset, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn a_struck_paddle_shows_it_and_eases_as_it_comes_free() {
+        let mut game = Game::new();
+        assert_eq!(paddle_stun(&game), None);
+        game.paddle_stun = RULES.stun_secs;
+        let (color, full) = paddle_stun(&game).unwrap();
+        assert_eq!(color, STRUCT_OVERLOAD);
+        game.paddle_stun = RULES.stun_secs / 10.0;
+        let (_, nearly_free) = paddle_stun(&game).unwrap();
+        assert!(
+            nearly_free < full && nearly_free > 0.4,
+            "{nearly_free} {full}"
+        );
+        // In the air is hotter and stronger than still shaking in place;
+        // nearer is stronger; and after the keystone it is gold.
+        let zone = |falling, secs, on| FallZone {
+            x: 400.0,
+            width: 52.0,
+            y: 554.0,
+            on,
+            falling,
+            secs,
+        };
+        let (air, shake) = (
+            fall_zone(&zone(true, 0.6, Landing::Paddle)),
+            fall_zone(&zone(false, 0.6, Landing::Paddle)),
+        );
+        assert!(air.1 > shake.1);
+        assert_ne!(air.0, shake.0);
+        let (near, far) = (
+            fall_zone(&zone(true, 0.1, Landing::Paddle)),
+            fall_zone(&zone(true, 1.5, Landing::Paddle)),
+        );
+        assert!(near.1 > far.1, "{near:?} {far:?}");
+        assert_eq!(
+            fall_zone(&zone(true, 0.5, Landing::Catch)).0,
+            BRICK_KEYSTONE
+        );
+        assert_eq!(
+            fall_zone(&zone(true, 0.5, Landing::Brick)).0,
+            STRUCT_OVERLOAD
+        );
+    }
 
     #[test]
     fn a_power_shows_fully_until_its_warning_then_pulses_under_3_hz() {
@@ -353,7 +607,7 @@ mod tests {
         );
     }
 
-    const ALL_CAPSULES: [PowerUpKind; 11] = [
+    const ALL_CAPSULES: [PowerUpKind; 12] = [
         PowerUpKind::Widen,
         PowerUpKind::Slow,
         PowerUpKind::Multiball,
@@ -365,6 +619,7 @@ mod tests {
         PowerUpKind::Break,
         PowerUpKind::ExplosiveBall,
         PowerUpKind::MetalBall,
+        PowerUpKind::MeteorRain,
     ];
 
     /// WCAG relative luminance of an sRGB color.

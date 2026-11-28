@@ -59,7 +59,7 @@ audio = ["sonomorph/output", "dep:sonomorph"]
 # (`output`; on Linux it needs libasound2-dev). Replaces the cpal
 # dependency and src/audio/{mixer,qoa,mulaw,output}.rs.
 git = "https://github.com/chussenot/sonomorph"
-rev = "7478336bd47da9f1aff15f64cebea88ef2de0267"
+rev = "3c2eaf0ea03a673a339ebf35af7b074d683e3981"
 default-features = false
 
 [build-dependencies.wesl]
@@ -78,7 +78,7 @@ version = "0.6.0"
 # audio/instruments/ and audio/samples/) render audio/score/**/*.score.
 # Replaces the cc build-dependency and the C sources; it needs a C compiler.
 git = "https://github.com/chussenot/sonomorph"
-rev = "7478336bd47da9f1aff15f64cebea88ef2de0267"
+rev = "3c2eaf0ea03a673a339ebf35af7b074d683e3981"
 features = ["render-advanced"]
 optional = true
 

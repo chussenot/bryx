@@ -148,6 +148,64 @@ fn a_blast_breaks_its_neighbors_as_its_front_reaches_them() {
 }
 
 #[test]
+fn a_meteorite_lands_small_and_hot_and_throws_sparks_back_up() {
+    let game = playing();
+    let mut fx = FxSystem::new(Quality::Full);
+    fx.observe(&game, &[GameEvent::MeteorStruck { x: 300.0, y: 120.0 }]);
+    let k = kinds(&fx);
+    assert!(k.contains(&"core") && k.contains(&"ring") && k.contains(&"sparks"));
+    assert!(
+        !k.contains(&"rocks") && !k.contains(&"dust"),
+        "not an asteroid's: {k:?}"
+    );
+    let up = fx.effects.iter().any(|e| {
+        matches!(e.kind, Kind::Sparks { origin, dir, .. } if origin == [300.0, 120.0] && dir[1] < 0.0)
+    });
+    assert!(up, "the sparks leave the brick's top, upward");
+}
+
+#[test]
+fn a_collapse_is_drawn_by_the_bricks_and_lit_only_where_it_lands() {
+    let game = playing();
+    let mut fx = FxSystem::new(Quality::Full);
+    // A support cracked by a hit, then let go: its crack goes with it, and
+    // the fall itself spawns nothing (the renderers draw the falling brick).
+    fx.observe(&game, &[struck(BrickKind::Support, 1, Striker::Ball)]);
+    assert_eq!(fx.cracks.len(), 1, "a support cracks like an armored brick");
+    let before = fx.effects.len();
+    let fell = GameEvent::BrickFell {
+        rect: fx.cracks[0].0.rect,
+        kind: BrickKind::Support,
+        nth: 1,
+    };
+    fx.observe(&game, &[fell]);
+    assert!(fx.cracks.is_empty());
+    assert_eq!(fx.effects.len(), before, "no effect for a fall");
+
+    // Where it lands: dust thrown back up, nothing more.
+    let mut fx = FxSystem::new(Quality::Full);
+    fx.observe(&game, &[GameEvent::DebrisLanded { x: 300.0, y: 200.0 }]);
+    assert_eq!(kinds(&fx), ["sparks"]);
+
+    // On the paddle: more of it, so the strike reads.
+    let mut fx = FxSystem::new(Quality::Full);
+    fx.observe(&game, &[GameEvent::PaddleStruck { x: 300.0, y: 554.0 }]);
+    assert_eq!(kinds(&fx), ["sparks"]);
+    assert!(matches!(fx.effects[0].kind, Kind::Sparks { count: 9, .. }));
+
+    // The keystone alone gets the blast's light.
+    let mut fx = FxSystem::new(Quality::Full);
+    fx.observe(&game, &[GameEvent::KeystoneFell { x: 400.0, y: 137.0 }]);
+    let k = kinds(&fx);
+    assert!(k.contains(&"core") && k.contains(&"ring"), "{k:?}");
+
+    // Struck, the keystone turns the striker back like steel: no crack.
+    let mut fx = FxSystem::new(Quality::Full);
+    fx.observe(&game, &[struck(BrickKind::Keystone, 1, Striker::Ball)]);
+    assert!(fx.cracks.is_empty());
+}
+
+#[test]
 fn an_asteroid_falls_apart_into_rock_not_splinters() {
     let game = playing();
     let mut fx = FxSystem::new(Quality::Full);

@@ -156,6 +156,7 @@ for knocks, zaps and air.
 | `laser`, `superlaser` | a gun fires | a note falling two octaves in 60 ms; a square falling three, with a buzz and a falling hiss |
 | `asteroid` | an asteroid arrives | a rumble swelling in over a wavering drone and a soft timpani roll |
 | `explosion` | an asteroid blows up | a crack falling into a rumble, over a bass drum and timpani |
+| `explosion` + `tiny` | an asteroid reaches the paddle (−250) | the explosion a fifth down and quieter, under Tiny's fall an octave down: a loss, not a hit |
 | `ball_lost` | one ball of a multiball drops | a falling pizzicato figure that fades as it falls |
 | `warp` | leaving through the Break gate | a note rising three octaves over rushing air and a swelling tremolo |
 | `select`, `pause` | start, continue, resume; pause | two plucks, up (the second leaning in) and down (the second stepping back) |
@@ -228,8 +229,9 @@ against new:
 
 ## Building
 
-- The default `audio` feature needs a C compiler (any `cc` finds), and on
-  Linux the ALSA headers (`libasound2-dev`); CI installs them.
+- The default `audio` feature needs a C compiler (Sonomorph's `render`
+  feature builds the engine for `build.rs`), and on Linux the ALSA headers
+  (`libasound2-dev`); CI installs them.
 - `--no-default-features` builds a silent game with neither.
 - A cold build renders the score in about 70 s on four cores, in parallel.
   Renders are cached in `OUT_DIR` under a hash of each score and of
@@ -272,6 +274,3 @@ against new:
 - **Across machines.** A render is byte-identical on one machine; across
   C libraries the last bits of `sinf` or `expf` may differ. Renders are
   build outputs, and no hash depends on them.
-- **A listening pass on real speakers.** The balance figures above are
-  measurements; the mix constants live in `mixer.rs` and `director.rs`,
-  the acts' levels in `compose_studio.py` (`ACT_TRIM`).

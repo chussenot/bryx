@@ -40,8 +40,8 @@ use crate::fx::gpu::{
 };
 use crate::fx::{FxFrame, Quality};
 use crate::game::{
-    Ball, Brick, Game, GameState, GunKind, Paddle, ASTEROID_RADIUS, GATE_REACH_ABOVE_PADDLE,
-    PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH,
+    Ball, Brick, Game, GameState, GunKind, Landing, Paddle, ASTEROID_RADIUS,
+    GATE_REACH_ABOVE_PADDLE, PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH,
 };
 use crate::hud::{self, Hud, BAND_HEIGHT, CANVAS_HEIGHT, CANVAS_WIDTH};
 use crate::levels::BrickKind;
@@ -82,10 +82,27 @@ const MAX_DESTROY_GHOSTS: usize = 20;
 /// Fading sphere instances behind the ball (see `push_trail`) -- matches
 /// `render.rs`'s own `TRAIL_LEN` (spec: "a 4-quad fading trail").
 const TRAIL_LEN: usize = 4;
-const MAX_CUBE_INSTANCES: usize = 1 /* paddle */ + MAX_BRICKS + MAX_POWERUPS + WALL_COUNT + MAX_DESTROY_GHOSTS + MAX_BOLTS
+/// Falling bricks drawn at once: a whole structure coming down.
+const MAX_DEBRIS: usize = MAX_BRICKS;
+/// A brick, and on a structural level its glow and its load mark.
+const MAX_CUBE_INSTANCES: usize = 1 /* paddle */ + MAX_BRICKS * 3 + MAX_DEBRIS + MAX_BRICKS /* fall warnings */ + MAX_POWERUPS + WALL_COUNT + MAX_DESTROY_GHOSTS + MAX_BOLTS
         + 1 /* the Break gate */ + movement::MAX_GROUND_RECTS;
+/// The structural marks sit this far over a brick's top face, and are
+/// this thick: enough to clear it at the camera's angle, no more.
+const STRUCT_MARK_LIFT: f32 = 0.6;
+/// A load mark's depth along the brick's near edge, in px.
+const BEARING_BAR: f32 = 2.0;
+/// The fall warning: a bar this deep, this far ahead of the paddle.
+const FALL_ZONE_BAR: f32 = 3.0;
+const FALL_ZONE_LIFT: f32 = 6.0;
+/// The same bar on a brick a falling brick will hit, just over its top.
+const FALL_MARK_LIFT: f32 = 2.0;
+/// How far a falling brick tips forward at its top speed, in radians.
+const DEBRIS_TILT: f32 = 0.6;
 /// `game.rs` keeps at most 3 asteroids; a defensive bound like the others.
 const MAX_ASTEROIDS: usize = 8;
+/// A Meteor rain sends 12, a few in flight at once; they draw as rocks.
+const MAX_METEORS: usize = 12;
 /// Half the height of an act's ground lines as slabs on the floor: low
 /// enough to read as drawn on it.
 const GROUND_HALF_HEIGHT: f32 = 0.5;
@@ -115,7 +132,10 @@ const PADDLE_TINT_STRENGTH: f32 = 0.45;
 /// effect it carries (a gun shows over Glue: it changes what Space does).
 fn paddle_color(curr: &Game) -> [f32; 4] {
     // A power about to run out pulses its hue (`palette::paddle_expiry`).
-    let tint = if let Some((hue, k)) = palette::paddle_expiry(curr, hud::reduced_motion()) {
+    let tint = if let Some(stun) = palette::paddle_stun(curr) {
+        // Struck by a falling brick: that shows over everything else.
+        Some(stun)
+    } else if let Some((hue, k)) = palette::paddle_expiry(curr, hud::reduced_motion()) {
         Some((hue, PADDLE_TINT_STRENGTH * k))
     } else {
         match curr.gun.map(|g| g.kind) {
@@ -175,6 +195,10 @@ fn sprite_for_kind(kind: BrickKind, hits_remaining: u8) -> SpriteId {
         BrickKind::Armored if hits_remaining >= 2 => SpriteId::BrickArmoredIntact,
         BrickKind::Armored => SpriteId::BrickArmoredHit,
         BrickKind::Indestructible => SpriteId::BrickIndestructible,
+        BrickKind::Support if hits_remaining >= 2 => SpriteId::BrickSupport,
+        BrickKind::Support => SpriteId::BrickSupportHit,
+        BrickKind::Beam | BrickKind::Tie => SpriteId::BrickBeam,
+        BrickKind::Keystone => SpriteId::BrickKeystone,
     }
 }
 
@@ -964,7 +988,9 @@ fn ingest_brick_destroyed_events(ghosts: &mut Vec<TumbleGhost>, events: &[GameEv
             if ghosts.len() < MAX_DESTROY_GHOSTS {
                 ghosts.push(TumbleGhost::spawn(x, y, width, height, kind));
             }
-        } else if let GameEvent::AsteroidExploded { x, y } = *event {
+        } else if let GameEvent::AsteroidExploded { x, y } | GameEvent::AsteroidHitPaddle { x, y } =
+            *event
+        {
             // An explosive ball's blast leaves no rock: the bricks it broke
             // tumble on their own `BrickDestroyedAt`s.
             if ghosts.len() < MAX_DESTROY_GHOSTS {
@@ -1360,7 +1386,7 @@ impl Renderer3D {
         });
         let rock_instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("render3d rock instances"),
-            size: (size_of::<Instance3D>() * MAX_ASTEROIDS) as wgpu::BufferAddress,
+            size: (size_of::<Instance3D>() * (MAX_ASTEROIDS + MAX_METEORS)) as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -1648,6 +1674,19 @@ impl Renderer3D {
                 )
                 .with_rotation(spin.to_array())
             })
+            // Meteorites: the same rock, glowing, flying just above the
+            // bricks' tops and spinning faster than an asteroid drifts.
+            .chain(curr.meteors.iter().take(MAX_METEORS).map(|meteor| {
+                let (x, z) = world_xz(meteor.x, meteor.y);
+                let angle = self.powerup_spin_angle * 4.0 + meteor.x * 0.05;
+                let spin = Quat::from_axis_angle(Vec3::new(1.0, 0.4, 0.2).normalize(), angle);
+                Instance3D::new(
+                    [x, BRICK_THICKNESS + meteor.radius, z],
+                    [meteor.radius; 3],
+                    palette::METEOR.linear(),
+                )
+                .with_rotation(spin.to_array())
+            }))
             .collect();
 
         // Bricks -- front face textured from `self.atlas` (see
@@ -1658,22 +1697,120 @@ impl Renderer3D {
         // frame instead of `brick_color`'s ordinary lit palette (see
         // `hit_flash`). `.take(MAX_BRICKS)` is defensive only -- `levels.rs`'s
         // own tests already enforce every built-in level fits this cap.
-        cube_instances.extend(curr.bricks.iter().take(MAX_BRICKS).map(|brick| {
-            let (x, z) = world_xz(brick.x, brick.y);
+        //
+        // On a structural level a brick also shows what it carries and
+        // what is about to happen to it, exactly as in 2D
+        // (`palette::structure_look`): a load mark along its near edge, a
+        // glow over its top while it cracks or is about to fall, a shake
+        // before it lets go.
+        let structural = curr.structure.is_active();
+        let reduced_motion = hud::reduced_motion();
+        for brick in curr.bricks.iter().take(MAX_BRICKS) {
+            let look = if structural {
+                palette::structure_look(curr, brick, reduced_motion)
+            } else {
+                palette::StructureLook::default()
+            };
+            let (x, z) = world_xz(brick.x + look.offset[0], brick.y + look.offset[1]);
             let uv = self.atlas.uv_rect(sprite_for_brick(brick));
             let emissive = if hit_flash.contains(&(brick.x, brick.y)) {
                 HIT_FLASH_EMISSIVE
             } else {
                 0.0
             };
-            Instance3D::textured(
-                [x, BRICK_THICKNESS / 2.0, z],
-                [brick.width / 2.0, BRICK_THICKNESS / 2.0, brick.height / 2.0],
-                brick_color(brick),
-                uv,
-            )
-            .with_emissive(emissive)
-        }));
+            let half = [brick.width / 2.0, BRICK_THICKNESS / 2.0, brick.height / 2.0];
+            cube_instances.push(
+                Instance3D::textured([x, BRICK_THICKNESS / 2.0, z], half, brick_color(brick), uv)
+                    .with_emissive(emissive),
+            );
+            let over = BRICK_THICKNESS + STRUCT_MARK_LIFT;
+            if look.bearing > 0.0 {
+                let inset = 2.0_f32.min(half[0] / 2.0);
+                cube_instances.push(
+                    Instance3D::new(
+                        [x, over, z + half[2] - BEARING_BAR],
+                        [
+                            (half[0] - inset) * look.bearing,
+                            STRUCT_MARK_LIFT,
+                            BEARING_BAR / 2.0,
+                        ],
+                        look.bearing_color.linear(),
+                    )
+                    .with_emissive(0.15),
+                );
+            }
+            if let Some((color, strength)) = look.glow {
+                let [r, g, b, _] = color.linear();
+                cube_instances.push(
+                    Instance3D::new(
+                        [x, over, z],
+                        [half[0], STRUCT_MARK_LIFT / 2.0, half[2]],
+                        [r, g, b, strength],
+                    )
+                    .with_emissive(0.25 * strength),
+                );
+            }
+        }
+        // Bricks that let go, falling: the same brick, a little dimmed and
+        // tipping forward as it gathers speed (still with reduced motion).
+        for d in curr.debris.iter().take(MAX_DEBRIS) {
+            let (x, z) = world_xz(d.x, d.y);
+            // After the keystone: mixed toward gold, there to be caught.
+            let [r, g, b, a] = palette::brick(d.kind, d.hits_remaining).linear();
+            // Dimmed a little while it threatens, like the 2D tint.
+            let [r, g, b] = match palette::debris_glow(curr) {
+                Some((color, k)) => {
+                    let [gr, gg, gb, _] = color.linear();
+                    [
+                        r * (1.0 - k) + gr * k,
+                        g * (1.0 - k) + gg * k,
+                        b * (1.0 - k) + gb * k,
+                    ]
+                }
+                None => [r * 0.8, g * 0.8, b * 0.8],
+            };
+            let tilt = if reduced_motion {
+                0.0
+            } else {
+                DEBRIS_TILT * d.vy / crate::structure::RULES.terminal_speed
+            };
+            cube_instances.push(
+                Instance3D::textured(
+                    [x, BRICK_THICKNESS / 2.0, z],
+                    [d.width / 2.0, BRICK_THICKNESS / 2.0, d.height / 2.0],
+                    [r, g, b, a],
+                    self.atlas
+                        .uv_rect(sprite_for_kind(d.kind, d.hits_remaining)),
+                )
+                .with_rotation(Quat::from_rotation_x(tilt).to_array()),
+            );
+        }
+        // Where they will land on the paddle's line, as in 2D: a bar on
+        // the floor just ahead of the paddle, pale while the brick still
+        // shakes in place, hot once it is in the air.
+        for zone in curr.fall_zones().iter().take(MAX_BRICKS) {
+            // On the floor ahead of the paddle, or on the top of the brick
+            // it will hit: the same bar as in 2D (`palette::fall_zone`).
+            let (lift, height) = match zone.on {
+                Landing::Brick => (FALL_MARK_LIFT, BRICK_THICKNESS + STRUCT_MARK_LIFT),
+                Landing::Paddle | Landing::Catch => (FALL_ZONE_LIFT, STRUCT_MARK_LIFT),
+            };
+            let (x, z) = world_xz(zone.x, zone.y - lift);
+            let (color, alpha) = palette::fall_zone(zone);
+            let [r, g, b, _] = color.linear();
+            cube_instances.push(
+                Instance3D::new(
+                    [x, height, z],
+                    [
+                        zone.width / 2.0 - 1.0,
+                        STRUCT_MARK_LIFT,
+                        FALL_ZONE_BAR / 2.0,
+                    ],
+                    [r, g, b, alpha],
+                )
+                .with_emissive(0.3 * alpha),
+            );
+        }
 
         // Bolts in flight.
         cube_instances.extend(curr.bolts.iter().take(MAX_BOLTS).map(|bolt| {
@@ -1727,9 +1864,14 @@ impl Renderer3D {
         // everything else on the board (`movement.rs`).
         let act = movement::of(curr);
         if let Some(act) = act {
-            let color = movement::ground_color(act, curr.rally);
-            cube_instances.extend(movement::ground_rects(act.ground).into_iter().map(
-                |[x, y, w, h]| {
+            // Reduced motion holds the stars still.
+            let secs = if hud::reduced_motion() {
+                0.0
+            } else {
+                curr.run_secs()
+            };
+            cube_instances.extend(movement::ground_quads(act, curr.rally, secs).map(
+                |([x, y, w, h], color)| {
                     let (wx, wz) = world_xz(x + w / 2.0, y + h / 2.0);
                     Instance3D::new(
                         [wx, GROUND_HALF_HEIGHT, wz],
@@ -1811,6 +1953,7 @@ impl Renderer3D {
                 capsules: &capsules,
                 record: self.record,
                 sound: self.sound,
+                view: "View: 3D",
                 // Unset (no rows) draws the game's own mode alone.
                 menu: (!self.menu.rows.is_empty()).then_some(&self.menu),
             },

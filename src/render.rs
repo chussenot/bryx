@@ -21,7 +21,7 @@ use crate::fx::gpu::{
 };
 use crate::fx::{FxFrame, Quality};
 use crate::game::{
-    Ball, BallMode, Brick, Game, GameState, GunKind, Paddle, GATE_REACH_ABOVE_PADDLE,
+    Ball, BallMode, Brick, Game, GameState, GunKind, Landing, Paddle, GATE_REACH_ABOVE_PADDLE,
     PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH,
 };
 use crate::hud::{self, Hud, BAND_HEIGHT};
@@ -130,6 +130,10 @@ const MAX_POWERUPS: usize = 16;
 /// `game.rs` keeps at most 3 asteroids; this bounds the instance buffer
 /// the same defensive way.
 const MAX_ASTEROIDS: usize = 8;
+/// A Meteor rain sends 12, a few in flight at once; each draws itself and
+/// [`METEOR_TRAIL`] fading copies behind it.
+const MAX_METEORS: usize = 12;
+const METEOR_TRAIL: usize = 5;
 /// `game.rs` caps bolts in flight at 16.
 const MAX_BOLTS: usize = 16;
 
@@ -148,6 +152,18 @@ const TRAIL_LEN: usize = 4;
 /// buffer for a full second copy of `MAX_BRICKS`.
 const MAX_DESTROY_GHOSTS: usize = 16;
 
+/// Falling bricks drawn at once: a whole structure coming down.
+const MAX_DEBRIS: usize = MAX_BRICKS;
+/// A load mark's thickness, in px.
+const BEARING_BAR: f32 = 2.0;
+/// The fall warning: a bar this thick, this far over the paddle's top.
+const FALL_ZONE_BAR: f32 = 3.0;
+const FALL_ZONE_LIFT: f32 = 5.0;
+/// The same bar on a brick a falling brick will hit, just over its top.
+const FALL_MARK_LIFT: f32 = 2.0;
+/// A falling brick's tint: its sprite at four fifths of its light.
+const DEBRIS_TINT: [f32; 4] = [0.8, 0.8, 0.8, 1.0];
+
 /// Fixed number of quad instances the instance buffer has room for: the
 /// paddle, the ball trail, the ball, the largest possible brick grid (plus
 /// its worst-case destroy-ghosts), and every capped entity list. The HUD
@@ -156,11 +172,16 @@ const MAX_DESTROY_GHOSTS: usize = 16;
 const MAX_QUADS: usize = 2
     + movement::MAX_GROUND_RECTS
     + TRAIL_LEN
+    // A brick, its structural glow and its load mark.
+    + MAX_BRICKS * 3
+    + MAX_DEBRIS * 2
+    // The warning under each brick about to come down on the paddle.
     + MAX_BRICKS
     + MAX_DESTROY_GHOSTS
     + MAX_EXTRA_BALLS
     + MAX_POWERUPS
     + MAX_ASTEROIDS
+    + MAX_METEORS * (1 + METEOR_TRAIL)
     + MAX_BOLTS
     + 1 /* the Break gate */;
 
@@ -195,11 +216,21 @@ const PADDLE_TINT_STRENGTH: f32 = 0.55;
 /// flag) tells us whether the first hit has already landed -- mirrors
 /// `assets::pack_filename`'s doc on why armored gets an intact/hit pair.
 fn brick_sprite(brick: &Brick) -> SpriteId {
-    match brick.kind {
+    kind_sprite(brick.kind, brick.hits_remaining)
+}
+
+/// `brick_sprite` from a kind and hit count alone: a falling brick is no
+/// longer a `Brick`.
+fn kind_sprite(kind: BrickKind, hits_remaining: u8) -> SpriteId {
+    match kind {
         BrickKind::Normal => SpriteId::BrickNormal,
-        BrickKind::Armored if brick.hits_remaining >= 2 => SpriteId::BrickArmoredIntact,
+        BrickKind::Armored if hits_remaining >= 2 => SpriteId::BrickArmoredIntact,
         BrickKind::Armored => SpriteId::BrickArmoredHit,
         BrickKind::Indestructible => SpriteId::BrickIndestructible,
+        BrickKind::Support if hits_remaining >= 2 => SpriteId::BrickSupport,
+        BrickKind::Support => SpriteId::BrickSupportHit,
+        BrickKind::Beam | BrickKind::Tie => SpriteId::BrickBeam,
+        BrickKind::Keystone => SpriteId::BrickKeystone,
     }
 }
 
@@ -954,11 +985,14 @@ impl Renderer {
 
         let mut instances = Vec::with_capacity(
             2 + TRAIL_LEN
-                + curr.bricks.len()
+                + curr.bricks.len() * 3
+                + curr.debris.len().min(MAX_DEBRIS) * 2
+                + MAX_BRICKS
                 + destroyed_ghosts.len()
                 + curr.extra_balls.len().min(MAX_EXTRA_BALLS)
                 + curr.powerups.len().min(MAX_POWERUPS)
                 + curr.asteroids.len().min(MAX_ASTEROIDS)
+                + curr.meteors.len().min(MAX_METEORS) * (1 + METEOR_TRAIL)
                 + curr.bolts.len().min(MAX_BOLTS)
                 + movement::MAX_GROUND_RECTS
                 + 1,
@@ -966,19 +1000,25 @@ impl Renderer {
         // The act's ground, first so everything in the field draws over
         // it, and unshaken: it is the floor (`movement.rs`).
         if let Some(act) = movement::of(curr) {
-            let color = movement::ground_color(act, curr.rally);
-            instances.extend(
-                movement::ground_rects(act.ground)
-                    .into_iter()
-                    .map(|[x, y, w, h]| {
-                        QuadInstance::new([x + w / 2.0, y + h / 2.0], [w / 2.0, h / 2.0], color)
-                    }),
-            );
+            // Reduced motion holds the stars still.
+            let secs = if hud::reduced_motion() {
+                0.0
+            } else {
+                curr.run_secs()
+            };
+            instances.extend(movement::ground_quads(act, curr.rally, secs).map(
+                |([x, y, w, h], color)| {
+                    QuadInstance::new([x + w / 2.0, y + h / 2.0], [w / 2.0, h / 2.0], color)
+                },
+            ));
         }
         // A power about to run out pulses its hue; otherwise a gun shows
         // over Glue: it changes what Space does.
         let reduced_motion = hud::reduced_motion();
-        let paddle_tint = if let Some((hue, k)) = palette::paddle_expiry(curr, reduced_motion) {
+        let paddle_tint = if let Some((hue, k)) = palette::paddle_stun(curr) {
+            // Struck by a falling brick: that shows over everything else.
+            paddle_tint(hue, k)
+        } else if let Some((hue, k)) = palette::paddle_expiry(curr, reduced_motion) {
             paddle_tint(hue, PADDLE_TINT_STRENGTH * k)
         } else {
             match curr.gun.map(|g| g.kind) {
@@ -1044,16 +1084,79 @@ impl Renderer {
         // was just hit and survived (e.g. armored's first hit) flashes flat
         // white for this one frame instead of its normal sprite -- a tinted
         // *sample* wouldn't pop the same way (see `hit_flash_color`'s doc).
-        instances.extend(curr.bricks.iter().take(MAX_BRICKS).map(|brick| {
+        //
+        // On a structural level a brick also shows what it carries and
+        // what is about to happen to it (`palette::structure_look`, shared
+        // with the 3D renderer): a load mark along its lower edge, a glow
+        // while it cracks or is about to fall, a shake before it lets go.
+        let structural = curr.structure.is_active();
+        for brick in curr.bricks.iter().take(MAX_BRICKS) {
+            let look = if structural {
+                palette::structure_look(curr, brick, reduced_motion)
+            } else {
+                palette::StructureLook::default()
+            };
             let half_size = [brick.width / 2.0, brick.height / 2.0];
-            let center = shaken(brick.x, brick.y);
+            let center = shaken(brick.x + look.offset[0], brick.y + look.offset[1]);
             if hit_flash.contains(&(brick.x, brick.y)) {
-                QuadInstance::new(center, half_size, hit_flash_color())
+                instances.push(QuadInstance::new(center, half_size, hit_flash_color()));
             } else {
                 let uv = self.sprite_atlas.uv_rect(brick_sprite(brick));
-                QuadInstance::new_textured(center, half_size, uv, WHITE_TINT)
+                instances.push(QuadInstance::new_textured(
+                    center, half_size, uv, WHITE_TINT,
+                ));
             }
-        }));
+            if look.bearing > 0.0 {
+                let [r, g, b, _] = look.bearing_color.linear();
+                let inset = 2.0_f32.min(half_size[0] / 2.0);
+                instances.push(QuadInstance::new(
+                    [center[0], center[1] + half_size[1] - BEARING_BAR],
+                    [(half_size[0] - inset) * look.bearing, BEARING_BAR / 2.0],
+                    [r, g, b, 0.9],
+                ));
+            }
+            if let Some((color, strength)) = look.glow {
+                let [r, g, b, _] = color.linear();
+                instances.push(QuadInstance::new(center, half_size, [r, g, b, strength]));
+            }
+        }
+        // Bricks that let go, falling: their own sprite, a little dimmed,
+        // so what is coming down reads apart from what still stands.
+        for d in curr.debris.iter().take(MAX_DEBRIS) {
+            let uv = self
+                .sprite_atlas
+                .uv_rect(kind_sprite(d.kind, d.hits_remaining));
+            instances.push(QuadInstance::new_textured(
+                shaken(d.x, d.y),
+                [d.width / 2.0, d.height / 2.0],
+                uv,
+                DEBRIS_TINT,
+            ));
+            // After the keystone: gold, there to be caught.
+            if let Some((color, strength)) = palette::debris_glow(curr) {
+                let [r, g, b, _] = color.linear();
+                instances.push(QuadInstance::new(
+                    shaken(d.x, d.y),
+                    [d.width / 2.0, d.height / 2.0],
+                    [r, g, b, strength],
+                ));
+            }
+        }
+        // Where they will land: a bar on the paddle's line, or on the top
+        // of the brick they will hit (`palette::fall_zone` says how).
+        for zone in curr.fall_zones().iter().take(MAX_BRICKS) {
+            let (color, alpha) = palette::fall_zone(zone);
+            let [r, g, b, _] = color.linear();
+            let lift = match zone.on {
+                Landing::Brick => FALL_MARK_LIFT,
+                Landing::Paddle | Landing::Catch => FALL_ZONE_LIFT,
+            };
+            instances.push(QuadInstance::new(
+                shaken(zone.x, zone.y - lift),
+                [zone.width / 2.0 - 1.0, FALL_ZONE_BAR / 2.0],
+                [r, g, b, alpha],
+            ));
+        }
         // Bricks destroyed this frame get one last white "ghost" quad at
         // their former spot -- otherwise a one-hit brick would vanish
         // without ever visibly flashing (see `bricks_just_destroyed`).
@@ -1132,6 +1235,32 @@ impl Renderer {
             )
         }));
 
+        // Meteorites: the same rock, glowing, each with a short streak
+        // behind it (the way it came: straight up), drawn first so the
+        // rock sits on top.
+        for meteor in curr.meteors.iter().take(MAX_METEORS) {
+            // The streak is the blast's white-hot core near the rock,
+            // cooling to the rock's amber and thinning as it trails off.
+            let (hot, cool) = (palette::FX_BLAST_CORE.linear(), palette::METEOR.linear());
+            for k in (1..=METEOR_TRAIL).rev() {
+                let fade = 1.0 - k as f32 / (METEOR_TRAIL + 1) as f32;
+                let back = meteor.radius * 1.4 * k as f32;
+                let mix = |i: usize| cool[i] + (hot[i] - cool[i]) * fade * fade;
+                instances.push(QuadInstance::new_textured(
+                    shaken(meteor.x, meteor.y - back),
+                    [meteor.radius * (0.25 + 0.7 * fade), meteor.radius],
+                    rock_uv,
+                    [mix(0), mix(1), mix(2), 0.8 * fade],
+                ));
+            }
+            instances.push(QuadInstance::new_textured(
+                shaken(meteor.x, meteor.y),
+                [meteor.radius, meteor.radius],
+                rock_uv,
+                palette::METEOR.linear(),
+            ));
+        }
+
         self.queue
             .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
 
@@ -1146,6 +1275,7 @@ impl Renderer {
                 capsules: &capsules,
                 record: self.record,
                 sound: self.sound,
+                view: "View: 2D",
                 // Unset (no rows) draws the game's own mode alone.
                 menu: (!self.menu.rows.is_empty()).then_some(&self.menu),
             },

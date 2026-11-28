@@ -69,8 +69,9 @@ exceeds ball radius — assert this in a test, not a comment).
 paddle. 0 lives → GameOver with final score. All destructible bricks
 cleared → next level; last level cleared → Victory screen.
 
-**Power-ups (exactly these eleven, nothing more)**: dropped by 15% of
-destroyed bricks, uniformly among the enabled ones, fall at 140 px/s, caught with
+**Power-ups (exactly these twelve, nothing more)**: dropped by 15% of
+destroyed bricks, uniformly among the enabled ones (but for the rare Meteor
+rain, which takes 3% of them: see below), fall at 140 px/s, caught with
 the paddle. A loaded levelset's level whose author placed bonuses drops
 exactly those instead: each marked brick drops its own (mapped in
 `docs/levelset-format.md`), every time, and unmarked bricks drop nothing;
@@ -80,7 +81,7 @@ a power-up the game has switched off (`--classic`) drops nothing:
 - Multiball (spawn 2 extra balls from current ball position; life is
   lost only when the LAST ball drops)
 - Glue, Laser, Super laser, Tiny, Player, Break, Explosive ball, Metal
-  ball (added after v1, see below)
+  ball, Meteor rain (added after v1, see below)
 
 **HUD**: score (top-left), lives as icons (top-right), level number
 (top-center). Menu and pause screens: title + key hints, keyboard only;
@@ -118,8 +119,9 @@ v1's)**, Game Director decisions recorded in `docs/design/director-review.md`:
 - Each act is a movement with its own look (`src/movement.rs`): I ·
   Foundations, II · Structures, III · Machines, IV · The Vault. One row of
   data each, read by both renderers: an accent hue (`palette::ACT_ACCENTS`)
-  for the ceiling rule and the 3D walls, and a ground motif of 2 px lines
-  under the bricks (survey dots, girders, gear teeth along the walls, a
+  for the ceiling rule and the 3D walls, and a ground motif of thin lines
+  under the bricks (scattered stars that twinkle slowly, each at its own
+  pace and still under reduced motion; girders, gear teeth along the walls, a
   vault door's nested frames) that brightens with the rally, from about
   1.3:1 on the field to about 2:1 at the tenth brick, never past the
   dimmest brick and always 7:1 under the ball. The serve prompt of an
@@ -144,6 +146,7 @@ Playing`, with Q leading back to `Menu` (below).
 `docs/design/level-select.md`: the menu lists the modes, one per row, and
 Space plays the highlighted one:
 - Campaign: the 32 named levels, every addition on (the default);
+- Structures: 32 levels in four acts to bring down (see "Additions after v1");
 - Classic: v1's three levels under v1's rules;
 - Levelset: one fetched LBreakoutHD set, its name on the row, changed with
   ←/→ (A/D);
@@ -160,7 +163,7 @@ row is shown disabled with how to fetch one, skipped by ↑/↓, and Shuffle
 is not offered. Each built-in mode's row shows its best score. Q on the
 pause, Game Over and Victory screens returns to the menu, which keeps its
 highlight; it ends the run, unscored. The flags preselect: `--classic`
-highlights Classic, `--levelset <file>` that set, `--levelset <dir>`
+highlights Classic, `--structures` Structures, `--levelset <file>` that set, `--levelset <dir>`
 offers that directory's sets instead of `levels/`'s. These are interface
 keys, never simulation input: `Input` and the pinned replay hash are
 unchanged.
@@ -227,6 +230,9 @@ never set them.
 - Sound is presentation only. `src/audio/director.rs` reads each tick's
   events and the game's state, like the renderers, and never writes to
   them.
+- V on the menu switches between the 2D and 3D renderers (`--renderer`
+  sets the start); the menu shows which is drawing. An interface key,
+  never simulation input, and not kept between sessions.
 - M cycles the sound: on, effects only, off (`BRYX_SOUND` sets the
   start). No device means a silent game, never a crash.
   `--no-default-features` builds a silent game with no C compiler and no
@@ -323,18 +329,86 @@ move.
   catching either replaces the one active, timer full again; like the guns,
   they outlast a lost life and end when the run does. A blast or a pass
   that takes a level's last bricks clears it.
+- **Meteor rain** (power-up, letter R, the rare one): 12 meteorites fall
+  on the bricks, one every 0.2 s, straight down at 520 px/s. Each aims at
+  the column of a destructible brick picked at random and lands on the
+  first brick in its way.
+  - A destructible brick it lands on breaks outright, armored ones
+    included: scored, counted in the rally and rolling its drop like any
+    broken brick.
+  - An indestructible brick stops it, unharmed, and keeps what it covers.
+  - A meteorite never reaches the paddle: one whose column empties under
+    it burns out. A rain that takes a level's last brick clears it.
+  - Catching it again during a rain starts the rain over (12 more from
+    then, not added to what was left). A lost life or a new level ends it.
+  - **Rarity.** It is not drawn with the others. A drop is first drawn
+    as before, uniformly among the enabled power-ups; then, 3% of the
+    time, the Meteor rain takes its place. So it stays at 3% of drops
+    whatever else is enabled, and every other drop falls where it would
+    have without it. A levelset's `?` and joker follow the same rule; no
+    levelset character names it.
 - **Asteroids**: from 4 s into a serve's flight, then every 5–10 s, one
   drifts in from the top edge (at most 3 at once), over the bricks, down at
   40 px/s with a sideways drift and wobble that flip at the walls. A ball
   touching one blows it up (+100) and bounces off it as off a round
   obstacle (velocity mirrored about the line between centers, speed
-  unchanged); the paddle touching one blows it up too (+100, harmless). The
+  unchanged); one that reaches the paddle blows up on it and costs 250 points (the
+  score stops at 0; never a life), with its own sound. The
   explosion hits every destructible brick within 40 px of the asteroid's
   center (closest point of the brick) once, as a ball would: normal bricks
   break (scored, and rolling their power-up drop), armored ones lose a hit,
   indestructible ones are untouched; a blast that takes a level's last
   bricks clears it. One that passes the paddle just leaves. A lost life or
   a new level clears them.
+
+- **Structures** (`docs/concept.md`, `docs/design/structural-gameplay.md`):
+  a fifth thing to play, 32 built-in levels in four acts of eight, like the
+  campaign's, with a Game Over continuing from the act's first level
+  (`levels::STRUCTURES`, the
+  menu's Structures row, `--structures`) that are brought down rather than
+  cleared. They add four brick characters to the level alphabet: `S`
+  support, `=` beam, `|` tie, `K` keystone; `X` is an anchor there. Grids
+  up to 14×14.
+  - A brick is held while a chain of bricks in edge-sharing cells leads
+    from it to an anchor; a beam bonds only left and right, a tie only up
+    and down. Its load is the number of bricks that would stop being held
+    without it.
+  - A brick carries, at most: normal 4; armored 3 per hit left; support 6
+    per hit left; beam and tie 6; keystone and anchor any number.
+  - Overloaded, it cracks 0.8 s and gives way. No longer held, it shakes
+    0.3 s (each row above the lowest 0.05 s more) and falls straight down
+    (1500 px/s², at most 640 px/s). A falling brick shatters on the first
+    standing brick under it, which takes one hit; steel and the keystone
+    take none.
+  - A falling brick that lands on the paddle shatters on it and holds it
+    still for 0.75 s (a second one starts the time over). Once the
+    keystone is down a falling brick that lands on the paddle is caught
+    instead, and scores again what it scored coming down. Both renderers
+    mark where every brick that is coming down will land (the paddle's
+    line, or the top of the brick it will hit), while it shakes and while
+    it falls; gold after the keystone. A lost life and a new level free a
+    held paddle.
+  - Nothing that strikes the keystone breaks it. When it falls the level
+    is won: the balls hold still, every brick left lets go, and the level
+    ends when nothing stands or falls. A level also ends when no brick
+    but steel is left.
+  - A collapse is one run, owned by the shot that set it off: its bricks
+    climb the multiplier from that shot's rally, one step each, to x10,
+    whatever the paddle does meanwhile. A brick brought down (fallen,
+    crushed, given way) scores twice its value at that multiplier, counts
+    in the rally and drops no capsule. A brick the keystone's fall
+    releases scores its plain value. The mode always scores by the rally
+    (as `--rally-score` does), has no asteroids and no Break capsule, and
+    keeps its own record.
+  - Breaking any one brick never ends a level, but in the three
+    single-cut lessons (First fall, Table, Hammer) (tested by playing each
+    brick out).
+  - All of it is deterministic: no randomness, fixed-tick timings, the
+    graph surveyed only when a brick leaves. Every structural level holds
+    untouched at its start with nothing over its limit, and has one
+    keystone with no anchor beside it (tested).
+  - The campaign, Classic, Shuffle and loaded levelsets have no structure
+    and play as before; the pinned replay hash has not moved.
 
 One rule applies whatever the features: **stall breaking**. After 10 s of
 flight with no ball touching the paddle, hitting a destructible brick or

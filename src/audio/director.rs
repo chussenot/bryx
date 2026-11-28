@@ -26,7 +26,7 @@ use crate::events::{GameEvent, PowerUpKind, Striker};
 use crate::game::TICK_RATE;
 use crate::game::{Game, GameState, GunKind, LevelSetKind, PLAYFIELD_WIDTH};
 use crate::levels::BrickKind;
-use crate::rally::Rally;
+use crate::rally::{self, Rally};
 
 use super::cues::{Cue, LEVEL_TRACKS};
 use super::Command;
@@ -170,6 +170,17 @@ pub fn shuffled_playlist(seed: u64) -> Vec<u8> {
     order
 }
 
+/// Bricks a collapse brings down to count as a major one: it ends on a
+/// boom.
+const MAJOR_COLLAPSE: u32 = 8;
+/// The rally scale's step that is the track's seventh: under the root, the
+/// leading tone.
+const LEADING_STEP: usize = 4;
+/// The bass of a collapse's waves, by wave: a step of the rally scale and
+/// an octave shift. The fifth, then the seventh, then the seventh an
+/// octave up; then it stays there.
+const WAVE_STEPS: [(usize, f32); 3] = [(3, -1.0), (LEADING_STEP, -1.0), (LEADING_STEP, 0.0)];
+
 fn play(cue: Cue, gain: f32, x: f32) -> Command {
     pitched(cue, gain, x, 1.0)
 }
@@ -210,6 +221,12 @@ pub struct Director {
     /// Notes waiting for a blast's front to reach their brick, with the
     /// ticks left until they sound. At most `MAX_PENDING`.
     pending: Vec<(u32, Command)>,
+    /// Rows of bricks that have let go in the collapse under way: how far
+    /// down the scale its phrase has come.
+    fall_step: usize,
+    /// Sections that have let go in the collapse under way: how far up its
+    /// bass has climbed.
+    wave: usize,
     ball_attached: bool,
     /// The level whose first serve has been heard: its music plays from
     /// there. Cleared when a run ends, so a Continue waits for its serve.
@@ -230,6 +247,8 @@ impl Director {
             steps: Vec::new(),
             delays: Vec::new(),
             pending: Vec::with_capacity(MAX_PENDING),
+            fall_step: 0,
+            wave: 0,
             ball_attached: false,
             served_level: None,
             jukebox: None,
@@ -346,6 +365,11 @@ impl Director {
         let mut ball_blast = false;
         // Likewise one knock on steel a tick, however many balls bounce.
         let mut steel = false;
+        // A structure coming down sounds once a tick for each thing it
+        // does, however many bricks do it together.
+        let (mut creak, mut gave, mut fell, mut thud) = (false, false, false, false);
+        let mut struck = false;
+        let mut caught = false;
         for (i, event) in events.iter().enumerate() {
             match *event {
                 GameEvent::BrickDestroyedAt { x, .. } => {
@@ -407,11 +431,109 @@ impl Director {
                 GameEvent::AsteroidExploded { x, .. } => {
                     out.push(play(Cue::Explosion, 0.7, x));
                 }
+                // One reaches the paddle and costs points: the blast a
+                // fifth down and duller, under Tiny's sour fall an octave
+                // down. A loss, not a hit.
+                GameEvent::AsteroidHitPaddle { x, .. } => {
+                    out.push(pitched(Cue::Explosion, 0.5, x, semitones(-7.0)));
+                    out.push(pitched(Cue::Tiny, 0.6, x, semitones(-12.0)));
+                }
                 // Quieter than an asteroid's: an explosive ball can blow up
                 // every second for fifteen seconds, under the brick notes.
                 GameEvent::BallExploded { x, .. } if !ball_blast => {
                     ball_blast = true;
                     out.push(play(Cue::Explosion, 0.4, x));
+                }
+                // A meteorite's strike: the explosion a fifth up and
+                // quieter still, a crack more than a boom. Twelve land in
+                // a rain, under the notes of the bricks they break; one a
+                // tick at most, with the ball's blasts.
+                GameEvent::MeteorStruck { x, .. } if !ball_blast => {
+                    ball_blast = true;
+                    out.push(pitched(Cue::Explosion, 0.35, x, semitones(7.0)));
+                }
+                // -- structure (docs/design/structures-v2.md, E) ------------
+                // Played on the cues there are, every pitch in the track's
+                // key: a collapse is a phrase, tension rising wave by wave
+                // and resolving on the root when it is over.
+                //
+                // Overloaded, cracking: tension. The armor's crack an octave
+                // down, quiet.
+                GameEvent::BrickOverloaded { rect, .. } if !creak => {
+                    creak = true;
+                    out.push(pitched(Cue::Armor, 0.32, rect[0], semitones(-12.0)));
+                }
+                // It gives way: the leading tone, the track's own seventh
+                // just under the root, which wants to resolve to it. The
+                // brick's own note follows with its `BrickDestroyedAt`.
+                GameEvent::BrickGaveWay { rect } if !gave => {
+                    gave = true;
+                    let leading = scale[LEADING_STEP] - 12.0;
+                    out.push(pitched(Cue::Armor, 0.5, rect[0], semitones(leading)));
+                }
+                // A section lets go: a bass note, one step higher each wave
+                // of the same collapse (the fifth, the seventh, the seventh
+                // an octave up), louder the more lets go. A cascade climbs.
+                GameEvent::SectionUnstable { count, x, .. } => {
+                    let wave = self.wave.min(WAVE_STEPS.len() - 1);
+                    self.wave += 1;
+                    let (step, octave) = WAVE_STEPS[wave];
+                    let degree = scale[step] + 12.0 * octave;
+                    let gain = 0.45 + 0.02 * f32::from(count.min(10));
+                    out.push(pitched(Cue::Brick, gain, x, semitones(degree)));
+                }
+                // The collapse itself: where the rally climbs the scale, a
+                // falling section comes down it, one step a row from the
+                // top, an octave lower each time around.
+                GameEvent::BrickFell { rect, .. } if !fell => {
+                    fell = true;
+                    let step = self.fall_step;
+                    self.fall_step += 1;
+                    let top = rally::STEPS - 1;
+                    let octave = (step / rally::STEPS).min(2) as f32;
+                    let degree = scale[top - step % rally::STEPS] - 12.0 * octave;
+                    out.push(pitched(Cue::Brick, 0.5, rect[0], semitones(degree)));
+                }
+                // A falling brick lands: the dull knock, lower.
+                GameEvent::DebrisLanded { x, .. } if !thud => {
+                    thud = true;
+                    out.push(pitched(Cue::Steel, 0.3, x, semitones(-5.0)));
+                }
+                // One lands on the paddle: the knock an octave down, loud,
+                // with the armor's crack under it. Heard at the paddle.
+                GameEvent::PaddleStruck { x, .. } if !struck => {
+                    struck = true;
+                    out.push(pitched(Cue::Steel, 0.75, x, semitones(-12.0)));
+                    out.push(pitched(Cue::Armor, 0.5, x, semitones(-7.0)));
+                }
+                // A brick caught in the finale: up the scale from the root,
+                // one step a catch: the answer to the collapse coming down.
+                GameEvent::DebrisCaught { x, nth, .. } if !caught => {
+                    caught = true;
+                    let step = (nth.max(1) as usize - 1).min(rally::STEPS - 1);
+                    out.push(pitched(Cue::Brick, 0.55, x, semitones(scale[step])));
+                }
+                // The keystone comes down: the root and its octave, the
+                // resolution. The level's fanfare follows when the rest has
+                // fallen.
+                GameEvent::KeystoneFell { x, .. } => {
+                    out.push(pitched(Cue::Brick, 0.8, x, semitones(scale[0])));
+                    out.push(pitched(Cue::Brick, 0.6, x, semitones(scale[0] + 12.0)));
+                }
+                // A collapse ends on the root, low: the cadence its waves
+                // and its leading tone were waiting for. A large one adds
+                // the low boom under it. Unless it ends the level: then the
+                // keystone's notes and the fanfare are its ending.
+                GameEvent::CollapseEnded { bricks, .. } => {
+                    self.fall_step = 0;
+                    self.wave = 0;
+                    if !has(&GameEvent::LevelCleared) {
+                        let x = PLAYFIELD_WIDTH / 2.0;
+                        out.push(pitched(Cue::Brick, 0.6, x, semitones(scale[0] - 12.0)));
+                        if bricks >= MAJOR_COLLAPSE {
+                            out.push(pitched(Cue::Explosion, 0.5, x, semitones(-5.0)));
+                        }
+                    }
                 }
                 GameEvent::PowerUpCaught(kind) => out.push(match kind {
                     PowerUpKind::Tiny => play(Cue::Tiny, 0.55, paddle_x),
@@ -588,6 +710,211 @@ mod tests {
     }
 
     #[test]
+    fn a_collapse_comes_down_the_scale_the_rally_climbs() {
+        let (mut director, game) = playing();
+        let scale = director.mode_playing().rally();
+        let fell = |nth| E::BrickFell {
+            rect: [400.0, 100.0, 52.0, 22.0],
+            kind: BrickKind::Normal,
+            nth,
+        };
+        // A row of three lets go together: one note, from the top.
+        let row = director.observe(&game, &[fell(1), fell(2), fell(3)]);
+        assert_eq!(pitches(&row), vec![semitones(scale[rally::STEPS - 1])]);
+        // The next rows step down; past the root the phrase drops an octave.
+        let mut heard = Vec::new();
+        for nth in 4..=13 {
+            heard.extend(pitches(&director.observe(&game, &[fell(nth)])));
+        }
+        assert!(heard.windows(2).take(8).all(|w| w[1] < w[0]), "{heard:?}");
+        let last = *heard.last().unwrap();
+        assert_eq!(last, semitones(scale[rally::STEPS - 1] - 12.0));
+
+        // The collapse over, the next one starts from the top again; a
+        // large one ends on a boom, unless the level's fanfare ends it.
+        let end = E::CollapseEnded {
+            bricks: 13,
+            score: 0,
+            waves: 2,
+        };
+        assert!(cues(&director.observe(&game, &[end])).contains(&Cue::Explosion));
+        let quiet = director.observe(&game, &[end, E::LevelCleared]);
+        assert!(!cues(&quiet).contains(&Cue::Explosion));
+        let again = director.observe(&game, &[fell(1)]);
+        assert_eq!(pitches(&again), vec![semitones(scale[rally::STEPS - 1])]);
+    }
+
+    #[test]
+    fn a_structure_under_strain_is_heard_before_it_goes() {
+        let (mut director, game) = playing();
+        let scale = director.mode_playing().rally();
+        let rect = [300.0, 100.0, 52.0, 8.0];
+        let overloaded = E::BrickOverloaded {
+            rect,
+            load: 9,
+            capacity: 6,
+        };
+        // Three beams overloaded in one tick creak once, low.
+        let out = director.observe(&game, &[overloaded, overloaded, overloaded]);
+        assert_eq!(cues(&out), [Cue::Armor]);
+        assert!(matches!(out[0], Command::Play { pitch, .. } if pitch == semitones(-12.0)));
+
+        // A support lost is not heard by itself: the sections it lets go
+        // are. Each wave of one collapse climbs: the fifth, the seventh,
+        // the seventh an octave up, and no further.
+        let lost = E::SupportLost {
+            x: 300.0,
+            y: 100.0,
+            dependents: 12,
+        };
+        assert!(pitches(&director.observe(&game, &[lost])).is_empty());
+        let wave = E::SectionUnstable {
+            count: 5,
+            x: 300.0,
+            y: 100.0,
+        };
+        let mut bass = Vec::new();
+        for _ in 0..4 {
+            bass.extend(pitches(&director.observe(&game, &[wave])));
+        }
+        assert_eq!(
+            bass,
+            [
+                semitones(scale[3] - 12.0),
+                semitones(scale[4] - 12.0),
+                semitones(scale[4]),
+                semitones(scale[4]),
+            ]
+        );
+        // It gives way on the leading tone, under the root.
+        let gave = E::BrickGaveWay { rect };
+        let out = director.observe(&game, &[gave]);
+        assert!(matches!(
+            out[0],
+            Command::Play { sound: Cue::Armor, pitch, .. } if pitch == semitones(scale[4] - 12.0)
+        ));
+        // And the collapse resolves on the root, low; the next one starts
+        // its climb over.
+        let end = E::CollapseEnded {
+            bricks: 3,
+            score: 0,
+            waves: 4,
+        };
+        let out = director.observe(&game, &[end]);
+        assert_eq!(pitches(&out), vec![semitones(scale[0] - 12.0)]);
+        let out = director.observe(&game, &[wave]);
+        assert_eq!(pitches(&out), vec![semitones(scale[3] - 12.0)]);
+
+        // The keystone resolves on the root and its octave.
+        let out = director.observe(&game, &[E::KeystoneFell { x: 400.0, y: 137.0 }]);
+        assert_eq!(
+            pitches(&out),
+            vec![semitones(scale[0]), semitones(scale[0] + 12.0)]
+        );
+    }
+
+    /// Every pitch a collapse plays is in the track's key: the rally scale
+    /// is built on each track's mode (`every_rally_note_is_in_its_tracks_mode`),
+    /// and the structure's notes are all steps of it, octaves apart.
+    #[test]
+    fn every_note_of_a_collapse_is_a_step_of_the_rally_scale() {
+        let (mut director, game) = playing();
+        let scale = director.mode_playing().rally();
+        let in_scale = |pitch: f32| {
+            (-3..=3).any(|octave| {
+                scale
+                    .iter()
+                    .any(|&n| (semitones(n + 12.0 * octave as f32) - pitch).abs() < 1e-4)
+            })
+        };
+        let rect = [300.0, 100.0, 52.0, 22.0];
+        let mut events = vec![
+            E::BrickOverloaded {
+                rect,
+                load: 9,
+                capacity: 6,
+            },
+            E::BrickGaveWay { rect },
+            E::DebrisLanded { x: 300.0, y: 100.0 },
+            E::KeystoneFell { x: 400.0, y: 137.0 },
+        ];
+        for n in 0..4 {
+            events.push(E::SectionUnstable {
+                count: 3,
+                x: 300.0,
+                y: 100.0,
+            });
+            events.push(E::BrickFell {
+                rect,
+                kind: BrickKind::Normal,
+                nth: n,
+            });
+        }
+        for nth in 1..12 {
+            events.push(E::DebrisCaught {
+                x: 400.0,
+                y: 554.0,
+                nth,
+                points: 10,
+            });
+        }
+        events.push(E::CollapseEnded {
+            bricks: 9,
+            score: 0,
+            waves: 4,
+        });
+        for event in events {
+            for command in director.observe(&game, &[event]) {
+                if let Command::Play {
+                    sound: Cue::Brick | Cue::Armor,
+                    pitch,
+                    ..
+                } = command
+                {
+                    assert!(in_scale(pitch), "{event:?} plays {pitch}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_brick_caught_in_the_finale_climbs_the_scale_once_a_tick() {
+        let (mut director, game) = playing();
+        let scale = director.mode_playing().rally();
+        let caught = |nth| E::DebrisCaught {
+            x: 400.0,
+            y: 554.0,
+            nth,
+            points: 10,
+        };
+        let mut heard = Vec::new();
+        for nth in 1..=3 {
+            heard.extend(pitches(
+                &director.observe(&game, &[caught(nth), caught(nth)]),
+            ));
+        }
+        assert_eq!(
+            heard,
+            [
+                semitones(scale[0]),
+                semitones(scale[1]),
+                semitones(scale[2])
+            ]
+        );
+    }
+
+    #[test]
+    fn a_brick_landing_on_the_paddle_is_heard_there_once_a_tick() {
+        let (mut director, game) = playing();
+        let struck = E::PaddleStruck { x: 120.0, y: 554.0 };
+        let out = director.observe(&game, &[struck, struck]);
+        assert_eq!(cues(&out), [Cue::Steel, Cue::Armor], "one strike heard");
+        assert!(out
+            .iter()
+            .all(|c| matches!(c, Command::Play { pan, pitch, .. } if *pan < 0.0 && *pitch < 1.0)));
+    }
+
+    #[test]
     fn many_bricks_in_one_tick_are_capped_but_still_climb() {
         let (mut director, game) = playing();
         let burst: Vec<E> = (0..8).map(|i| brick_at(100.0 + 50.0 * i as f32)).collect();
@@ -673,6 +1000,45 @@ mod tests {
         game.level = 17;
         let last = pitches(&director.observe(&game, &[brick_at(400.0), E::LevelCleared]));
         assert_eq!(last, vec![semitones(11.0)], "D sharp, over Bridges");
+    }
+
+    #[test]
+    fn a_meteorite_strikes_as_a_crack_where_it_lands_once_a_tick() {
+        let (mut director, game) = playing();
+        let out = director.observe(
+            &game,
+            &[
+                E::MeteorStruck { x: 200.0, y: 90.0 },
+                E::MeteorStruck { x: 600.0, y: 90.0 },
+            ],
+        );
+        let cracks: Vec<_> = out
+            .iter()
+            .filter_map(|c| match *c {
+                Command::Play {
+                    sound: Cue::Explosion,
+                    gain,
+                    pan,
+                    pitch,
+                    ..
+                } => Some((gain, pan, pitch)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cracks.len(), 1, "one a tick, however many land: {out:?}");
+        let (gain, pan, pitch) = cracks[0];
+        assert!(gain < 0.4, "under a ball's blast, far under an asteroid's");
+        assert!(pan < 0.0, "heard on the left, where it landed");
+        assert_eq!(pitch, semitones(7.0), "a fifth up: a crack, not a boom");
+    }
+
+    #[test]
+    fn an_asteroid_on_the_paddle_does_not_sound_like_one_blown_up() {
+        let (mut director, game) = playing();
+        let hit = director.observe(&game, &[E::AsteroidHitPaddle { x: 300.0, y: 560.0 }]);
+        let blown = director.observe(&game, &[E::AsteroidExploded { x: 300.0, y: 560.0 }]);
+        assert_eq!(cues(&hit), [Cue::Explosion, Cue::Tiny]);
+        assert_ne!(hit, blown);
     }
 
     #[test]

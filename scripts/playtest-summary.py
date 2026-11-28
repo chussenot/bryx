@@ -36,6 +36,15 @@ def load(paths):
                     row[key] = float(row[key])
                 for key in ("run", "level", "lives_lost", "longest_rally", "bricks", "capsules", "score"):
                     row[key] = int(row[key])
+                # The structural columns: absent from logs written before them.
+                for key in (
+                    "brought_down", "collapses", "largest_collapse", "paddle_hits",
+                    "support_cuts", "intermediate_collapses", "debris_hits", "caught",
+                ):
+                    row[key] = int(row.get(key) or 0)
+                row["longest_idle_secs"] = float(row.get("longest_idle_secs") or 0.0)
+                first = row.get("first_fall_secs") or ""
+                row["first_fall_secs"] = float(first) if first else None
                 rows.append(row)
     return rows
 
@@ -70,7 +79,11 @@ def summarise(name, rows):
     by_level = defaultdict(list)
     for r in rows:
         by_level[(r["mode"], r["level"], r["name"])].append(r)
-    print(f"\n{'level':<28} {'plays':>5} {'secs':>6} {'hunt':>6} {'hunt%':>6} {'lives':>6} {'rally':>6}")
+    print(
+        f"\n{'level':<28} {'plays':>5} {'secs':>6} {'hunt':>6} {'hunt%':>6} {'lives':>6} {'rally':>6}"
+        f" {'down%':>6} {'falls':>6} {'1st':>5} {'struck':>6}"
+        f" {'cuts':>5} {'inter':>5} {'dhits':>5} {'caught':>6} {'idle':>5}"
+    )
     flagged = []
     for (mode, level, lname), plays in sorted(by_level.items()):
         done = [p for p in plays if p["outcome"] != "abandoned"]
@@ -80,7 +93,26 @@ def summarise(name, rows):
         lives = sum(p["lives_lost"] for p in plays) / len(plays)
         rally = median([p["longest_rally"] for p in plays])
         label = f"{level:>2} {lname or mode}"[:28]
-        print(f"{label:<28} {len(plays):>5} {secs:>6.0f} {hunt:>6.0f} {share:>6.0%} {lives:>6.2f} {rally:>6.0f}")
+        # Structural levels: the share of bricks brought down rather than
+        # broken, collapses a play, and the median time to the first fall.
+        broken = sum(p["bricks"] for p in plays)
+        down = sum(p["brought_down"] for p in plays) / broken if broken else 0.0
+        falls = sum(p["collapses"] for p in plays) / len(plays)
+        firsts = [p["first_fall_secs"] for p in plays if p["first_fall_secs"] is not None]
+        first = f"{median(firsts):>5.0f}" if firsts else f"{'-':>5}"
+        # Times a play a falling brick landed on the paddle.
+        struck = sum(p["paddle_hits"] for p in plays) / len(plays)
+
+        # The mean of a structural count over the plays.
+        def per(key):
+            return sum(p[key] for p in plays) / len(plays)
+        print(
+            f"{label:<28} {len(plays):>5} {secs:>6.0f} {hunt:>6.0f} {share:>6.0%} {lives:>6.2f} {rally:>6.0f}"
+            f" {down:>6.0%} {falls:>6.1f} {first} {struck:>6.1f}"
+            f" {per('support_cuts'):>5.1f} {per('intermediate_collapses'):>5.1f}"
+            f" {per('debris_hits'):>5.1f} {per('caught'):>6.1f}"
+            f" {median([p['longest_idle_secs'] for p in plays]):>5.0f}"
+        )
         if share > HUNT_FLAG:
             flagged.append(f"{label}: the last tenth takes {share:.0%} of the level")
         if level_median and secs > SLOW_FLAG * level_median:

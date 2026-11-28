@@ -72,6 +72,46 @@ brick map (`.`, `1`, `2`, `X`, one character per 50 px column), per-lane
 counts (`destructible`, `exposed` to a straight shot, `indestructible`),
 the balls, the paddle, lives, level, and `rallies_without_progress`.
 
+## Structures: the weak point
+
+On a structural level (`--structures`) the heuristic does not aim by lane.
+Among the bricks a ball can get at, it aims at, in order:
+
+1. the brick whose loss brings the keystone down, for the fewest hits.
+   The structure's graph (`Structure::what_falls`) says cheaply whether
+   anything would fall at all; when something would, the break is played
+   out on a copy of the structure with no ball (`Game::forecast_break`),
+   so what a falling section cracks or breaks in turn is counted too;
+2. else the brick whose loss brings the most bricks down;
+3. else, when no single brick brings anything down, one of the bricks
+   that hold the keystone up (`Structure::keystone_holds`, a minimum
+   cut), or the reachable brick nearest one. Each one broken is a chain
+   fewer, until a brick of the first kind appears.
+
+The lowest on a tie. It is worked out again each time a brick goes or is
+cracked.
+
+It also steps out from under a falling brick (`clear_of_debris`): when
+one would land on the paddle within a second (`Game::fall_zones` gives
+where and when), it moves to the nearest clear spot, unless it could not
+be back under the ball in time. Then it stays: a paddle held where the
+ball lands still returns it. It ignores the finale's gold bricks: it does
+not try to catch them.
+
+It aims a straight line from the paddle, so a target the ball can only
+reach from the side, such as a tie hidden above a hammer, is out of its
+reach. On the Hammer and the Crane it brute-forces the mast instead. The
+level tests, not the autopilot, prove the drops work.
+
+Headless, it brings all 32 structures down on each of three seeds, in
+27 to 32 minutes of play, with more bricks fallen than broken, struck by
+falling bricks 8 to 16 times; it prints, for each level, the collapses
+that ended before the keystone, the hits falling bricks dealt the
+structure, and the paddle hits (`mod.rs`,
+`the_heuristic_brings_down_every_structure`, ignored by default; the
+first act alone runs with the other tests). That is a regression test and
+a pacing probe, not evidence of how hard a person finds them.
+
 ## Why a decision per rally, and why the game never waits
 
 A rally (paddle to wall and back) takes at least ~0.9 s at the 700 px/s
